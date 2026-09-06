@@ -74,3 +74,5 @@ Thumbs.db
 *.sav
 *.json
 !package.json
+
+Il2CppDumper/

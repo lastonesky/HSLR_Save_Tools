@@ -48,8 +48,8 @@ from tkinter import ttk, messagebox, filedialog
 class HSLEditor:
     def __init__(self):
         self.root = tk.Tk()
-        self.root.title("幻世录重制版 存档编辑器")
-        self.root.geometry("720x780")
+        self.root.title("幻世录重制版 存档编辑器 v2 (持久属性修改)")
+        self.root.geometry("720x850")
         self.root.resizable(False, False)
 
         self.save_data = None
@@ -115,7 +115,7 @@ class HSLEditor:
         bot.pack(fill='x')
         ttk.Button(bot, text="💾 保存存档", command=self.save_file).pack(side='right')
         ttk.Button(bot, text="🔄 刷新显示", command=self.refresh_ui).pack(side='right', padx=8)
-        ttk.Button(bot, text="⚡ 全队满属性", command=self.batch_max_all).pack(side='left', padx=8)
+        ttk.Button(bot, text="⚡ 全队满属性(持久)", command=self.batch_max_all).pack(side='left', padx=8)
 
         # 底部状态栏
         self.status_frame = ttk.Frame(self.root)
@@ -139,16 +139,46 @@ class HSLEditor:
     # ---------- 存档属性 ----------
     def _build_record(self, parent):
         self.record_vars = {}
-        ttk.Label(parent, text="基础属性 (BaseAttr)", font=('', 10, 'bold')).grid(row=0, column=0, columnspan=6, sticky='w', pady=(0,4))
-        base_fields = [("力量Str","Str"),("敏捷Dex","Dex"),("智力Mind","Mind"),("体质Con","Con"),("基础HP","Hp"),("基础MP","Mp")]
+
+        # 说明标签
+        note = ttk.Label(parent, text="💡 永久加成和基础属性会被保留；战斗属性每次加载自动重算",
+                         foreground='blue', wraplength=650)
+        note.grid(row=0, column=0, columnspan=8, sticky='w', pady=(0,4))
+
+        # --- BaseAttr（基础属性点，永久生效）---
+        ttk.Label(parent, text="基础属性 (BaseAttr) ★核心★", font=('', 10, 'bold')
+                  ).grid(row=1, column=0, columnspan=8, sticky='w', pady=(2,2))
+        base_fields = [("力量","Str"),("敏捷","Dex"),("智力","Mind"),("体质","Con"),("基础HP","Hp"),("基础MP","Mp")]
         for i, (label, key) in enumerate(base_fields):
-            ttk.Label(parent, text=label+":").grid(row=1+i//3, column=(i%3)*2, sticky='e', padx=4, pady=2)
+            ttk.Label(parent, text=label+":").grid(row=2+i//3, column=(i%3)*2, sticky='e', padx=4, pady=2)
             v = tk.StringVar()
-            ttk.Entry(parent, textvariable=v, width=8).grid(row=1+i//3, column=(i%3)*2+1, sticky='w', padx=4, pady=2)
+            ttk.Entry(parent, textvariable=v, width=8).grid(row=2+i//3, column=(i%3)*2+1, sticky='w', padx=4, pady=2)
             self.record_vars[f"BaseAttr.{key}"] = v
 
-        ttk.Separator(parent, orient='horizontal').grid(row=3, column=0, columnspan=6, sticky='ew', pady=6)
-        ttk.Label(parent, text="战斗属性 (FightAttr)", font=('', 10, 'bold')).grid(row=4, column=0, columnspan=6, sticky='w', pady=(0,4))
+        # --- PermanentFightAttr（永久加成，永久生效）---
+        ttk.Separator(parent, orient='horizontal').grid(row=4, column=0, columnspan=8, sticky='ew', pady=4)
+        ttk.Label(parent, text="永久加成 (PermanentFightAttr) ★核心★", font=('', 10, 'bold')
+                  ).grid(row=5, column=0, columnspan=8, sticky='w', pady=(2,2))
+        perm_fields = [
+            ("力量","Str"),("敏捷","Dex"),("智力","Mind"),("体质","Con"),
+            ("HP加成","MaxHp"),("MP加成","MaxMp"),
+            ("物攻","PhysicalAttack"),("魔攻","MagicAttack"),
+            ("防御","Defense"),("速度","Speed"),
+            ("暴击率","CriticalRatio"),("闪避率","DodgeRatio"),
+        ]
+        for i, (label, key) in enumerate(perm_fields):
+            r = 6 + i // 4
+            c = (i % 4) * 2
+            ttk.Label(parent, text=label+":").grid(row=r, column=c, sticky='e', padx=3, pady=2)
+            v = tk.StringVar()
+            ttk.Entry(parent, textvariable=v, width=7).grid(row=r, column=c+1, sticky='w', padx=3, pady=2)
+            self.record_vars[f"PermAttr.{key}"] = v
+
+        # --- FightAttr（战斗属性，自动计算，仅供参考）---
+        ttk.Separator(parent, orient='horizontal').grid(row=10, column=0, columnspan=8, sticky='ew', pady=4)
+        ttk.Label(parent, text="战斗属性 (FightAttr)  [自动计算 · 只读参考]",
+                  font=('', 10, 'bold'), foreground='gray'
+                  ).grid(row=11, column=0, columnspan=8, sticky='w', pady=(2,2))
         fight_fields = [
             ("当前HP","Hp"),("最大HP","MaxHp"),("当前MP","Mp"),("最大MP","MaxMp"),
             ("力量","Str"),("敏捷","Dex"),("智力","Mind"),("体质","Con"),
@@ -158,11 +188,12 @@ class HSLEditor:
             ("火抗","FireRes"),("水抗","WaterRes"),("风抗","AirRes"),("地抗","EarthRes"),("灵抗","MindRes"),
         ]
         for i, (label, key) in enumerate(fight_fields):
-            r = 5 + i // 4
+            r = 12 + i // 4
             c = (i % 4) * 2
             ttk.Label(parent, text=label+":").grid(row=r, column=c, sticky='e', padx=3, pady=2)
             v = tk.StringVar()
-            ttk.Entry(parent, textvariable=v, width=7).grid(row=r, column=c+1, sticky='w', padx=3, pady=2)
+            e = ttk.Entry(parent, textvariable=v, width=7, state='readonly', readonlybackground='#f0f0f0')
+            e.grid(row=r, column=c+1, sticky='w', padx=3, pady=2)
             self.record_vars[f"FightAttr.{key}"] = v
 
     # ---------- 战场属性 ----------
@@ -185,10 +216,13 @@ class HSLEditor:
 
         # 一键满血满蓝
         btn_frame = ttk.Frame(parent)
-        btn_frame.grid(row=len(fields)//3+1, column=0, columnspan=6, pady=10)
+        btn_frame.grid(row=len(fields)//3+1, column=0, columnspan=6, pady=4)
         ttk.Button(btn_frame, text="❤ 一键满血满蓝", command=self.full_heal).pack(side='left', padx=8)
-        ttk.Button(btn_frame, text="⚡ 全属性MAX", command=self.max_stats).pack(side='left', padx=8)
+        ttk.Button(btn_frame, text="⚡ 战场属性MAX(本战)", command=self.max_stats_battle).pack(side='left', padx=8)
         ttk.Button(btn_frame, text="🎯 Lv99 + 满经验", command=self.max_level).pack(side='left', padx=8)
+        ttk.Label(parent, text="⚠ 战场属性仅当前战斗有效，下次进图会重算。\n永久修改请到「存档属性」页或用底部「全队满属性(持久)」按钮。",
+                  foreground='#b06000', wraplength=600, justify='left'
+                  ).grid(row=len(fields)//3+2, column=0, columnspan=6, sticky='w', pady=(4,0))
 
     def full_heal(self):
         if "MaxHp" in self.battle_vars:
@@ -196,16 +230,14 @@ class HSLEditor:
         if "MaxMp" in self.battle_vars:
             self.battle_vars["Mp"].set(self.battle_vars["MaxMp"].get())
 
-    def max_stats(self):
+    def max_stats_battle(self):
+        """战场页一键满属性（仅本战有效）"""
         for k in ["Str","Dex","Mind","Con","PhysicalAttack","MagicAttack","Defense","Speed"]:
             if k in self.battle_vars:
                 self.battle_vars[k].set("999")
         for k in ["CriticalRatio","DodgeRatio"]:
             if k in self.battle_vars:
                 self.battle_vars[k].set("100")
-        for k in ["FireRes","WaterRes","AirRes","EarthRes","MindRes"]:
-            if k in self.battle_vars and k in self.battle_vars:
-                pass  # 战场页没有抗性，不处理
         if "MaxHp" in self.battle_vars:
             self.battle_vars["MaxHp"].set("9999")
             self.battle_vars["Hp"].set("9999")
@@ -220,7 +252,7 @@ class HSLEditor:
             self.battle_vars["Exp"].set("99999")
 
     def batch_max_all(self):
-        """批量将所有己方角色属性设为最大值"""
+        """批量将所有己方角色设为最大值（修改持久层，不会被升级覆盖）"""
         if not self.all_entities:
             self._show_status("没有可修改的己方角色", is_error=True)
             return
@@ -229,34 +261,46 @@ class HSLEditor:
         count = 0
         for pid, (ekey, ent) in self.all_entities.items():
             rec = self.all_records.get(pid)
-            # 战场实体
+            # ---- 战场实体：同步等级/经验/Hp/Mp（当前战斗即时生效）----
             ent['Level'] = 99
             ent['Exp'] = 99999
             ent['MaxHp'] = 9999
             ent['Hp'] = 9999
             ent['MaxMp'] = 999
             ent['Mp'] = 999
-            ent.setdefault('BaseAttr', {})['Hp'] = 9999
+            ent.setdefault('BaseAttr', {})['Hp'] = 999
+            ent['BaseAttr']['Mp'] = 99
             efa = ent.setdefault('FightAttr', {})
+            efa['Hp'] = 9999; efa['MaxHp'] = 9999
+            efa['Mp'] = 999; efa['MaxMp'] = 999
             for k in ["Str","Dex","Mind","Con","PhysicalAttack","MagicAttack","Defense","Speed"]:
                 efa[k] = 999
             for k in ["CriticalRatio","DodgeRatio"]:
                 efa[k] = 100
-            efa['Hp'] = 9999
-            efa['MaxHp'] = 9999
-            efa['Mp'] = 999
-            efa['MaxMp'] = 999
-            # 存档记录
+            # ---- 存档记录：修改持久层 ----
             if rec:
                 rec['Level'] = 99
                 rec['Exp'] = 99999
+                # BaseAttr（基础属性点，永久生效）
                 rec_ba = rec.setdefault('BaseAttr', {})
-                rec_ba['Hp'] = 9999
+                for k in ["Str","Dex","Mind","Con"]:
+                    rec_ba[k] = 99
+                rec_ba['Hp'] = 999
+                rec_ba['Mp'] = 99
+                # PermanentFightAttr（永久加成，永久生效，不会被重算覆盖）
+                rec_pfa = rec.setdefault('PermanentFightAttr', {})
+                for k in ["Str","Dex","Mind","Con"]:
+                    rec_pfa[k] = 999
+                rec_pfa['MaxHp'] = 9000
+                rec_pfa['MaxMp'] = 900
+                for k in ["PhysicalAttack","MagicAttack","Defense","Speed"]:
+                    rec_pfa[k] = 999
+                rec_pfa['CriticalRatio'] = 100
+                rec_pfa['DodgeRatio'] = 100
+                # FightAttr 也更新（仅作为加载时的初始显示，下次重算会被覆盖）
                 rec_fa = rec.setdefault('FightAttr', {})
-                rec_fa['Hp'] = 9999
-                rec_fa['MaxHp'] = 9999
-                rec_fa['Mp'] = 999
-                rec_fa['MaxMp'] = 999
+                rec_fa['Hp'] = 9999; rec_fa['MaxHp'] = 9999
+                rec_fa['Mp'] = 999; rec_fa['MaxMp'] = 999
                 for k in ["Str","Dex","Mind","Con","PhysicalAttack","MagicAttack","Defense","Speed"]:
                     rec_fa[k] = 999
                 for k in ["CriticalRatio","DodgeRatio"]:
@@ -265,7 +309,7 @@ class HSLEditor:
         # 刷新当前角色显示
         self._set_current_char(self.current_pid)
         self.refresh_ui()
-        self._show_status(f"✓ 已全队满属性: {count} 个角色")
+        self._show_status(f"✓ 已全队满属性: {count} 个角色（持久生效，升级不会回缩）")
 
     # ---------- 装备/道具/技能 ----------
     def _build_equip(self, parent):
@@ -602,9 +646,17 @@ class HSLEditor:
         if rec:
             rec['Level'] = int(self.basic_vars["Level"].get() or 0)
             rec['Exp'] = int(self.basic_vars["Exp"].get() or 0)
+            # BaseAttr
             ba = rec.setdefault('BaseAttr', {})
             for key in ["Str","Dex","Mind","Con","Hp","Mp"]:
                 ba[key] = int(self.record_vars[f"BaseAttr.{key}"].get() or 0)
+            # PermanentFightAttr（持久层，不会被重算覆盖）
+            pfa = rec.setdefault('PermanentFightAttr', {})
+            for key in ["Str","Dex","Mind","Con","MaxHp","MaxMp",
+                         "PhysicalAttack","MagicAttack","Defense","Speed",
+                         "CriticalRatio","DodgeRatio"]:
+                pfa[key] = int(self.record_vars[f"PermAttr.{key}"].get() or 0)
+            # FightAttr（只读参考，写回仅供参考，下次加载会被重算）
             fa = rec.setdefault('FightAttr', {})
             for key in ["Hp","MaxHp","Mp","MaxMp","Str","Dex","Mind","Con",
                          "PhysicalAttack","MagicAttack","Defense","Speed","Move",
@@ -648,7 +700,7 @@ class HSLEditor:
             ss = self.sp_skill_var.get().strip()
             ent['SpSkillIDs'] = [int(x.strip()) for x in ss.split(',') if x.strip()] if ss else []
 
-            # 同步战场数据到存档记录
+            # 同步战场数据到存档记录（HP/MP/BaseAttr）
             if rec:
                 rec.setdefault('FightAttr', {})['Hp'] = new_hp
                 rec['FightAttr']['MaxHp'] = new_maxhp
@@ -673,6 +725,13 @@ class HSLEditor:
             ba = self.record.get('BaseAttr', {})
             for key in ["Str","Dex","Mind","Con","Hp","Mp"]:
                 self.record_vars[f"BaseAttr.{key}"].set(str(ba.get(key, 0)))
+            # PermanentFightAttr（永久加成）
+            pfa = self.record.get('PermanentFightAttr', {})
+            for key in ["Str","Dex","Mind","Con","MaxHp","MaxMp",
+                         "PhysicalAttack","MagicAttack","Defense","Speed",
+                         "CriticalRatio","DodgeRatio"]:
+                self.record_vars[f"PermAttr.{key}"].set(str(pfa.get(key, 0)))
+            # FightAttr（只读参考）
             fa = self.record.get('FightAttr', {})
             for key in ["Hp","MaxHp","Mp","MaxMp","Str","Dex","Mind","Con",
                          "PhysicalAttack","MagicAttack","Defense","Speed","Move",
