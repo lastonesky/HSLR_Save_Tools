@@ -9,6 +9,18 @@ KEY = bytes.fromhex('48534c523230323555534a4f59214023414553323536214023464f52465
 IV  = bytes.fromhex('68736c72763230323530353037303031')
 MAGIC = b'ECC:'
 
+# === 默认存档路径 ===
+def get_default_save_dir():
+    """获取幻世录重制版默认存档目录（使用环境变量适配当前用户）"""
+    user_profile = os.environ.get('USERPROFILE', '')
+    if user_profile:
+        save_dir = os.path.join(user_profile, 'AppData', 'LocalLow', 'UserJoy', 'HSLR', 'Save', 'Save_Demo', 'sav')
+        if os.path.isdir(save_dir):
+            return save_dir
+    return None
+
+DEFAULT_SAVE_DIR = get_default_save_dir()
+
 def decrypt_file(filepath):
     with open(filepath, 'rb') as f:
         data = f.read()
@@ -86,11 +98,18 @@ class HSLEditor:
         nb.add(f5, text=" 全角色一览 ")
         self._build_roster(f5)
 
-        # 底部按钮
+        # 底部按钮和状态栏
         bot = ttk.Frame(self.root, padding=8)
         bot.pack(fill='x')
         ttk.Button(bot, text="💾 保存存档", command=self.save_file).pack(side='right')
         ttk.Button(bot, text="🔄 刷新显示", command=self.refresh_ui).pack(side='right', padx=8)
+
+        # 底部状态栏
+        self.status_frame = ttk.Frame(self.root)
+        self.status_frame.pack(fill='x', side='bottom')
+        self.status_var = tk.StringVar(value="就绪")
+        self.status_label = ttk.Label(self.status_frame, textvariable=self.status_var, relief='sunken', anchor='w', padding=(8, 4))
+        self.status_label.pack(fill='x')
 
     # ---------- 基础信息 ----------
     def _build_basic(self, parent):
@@ -248,7 +267,9 @@ class HSLEditor:
             if isinstance(name, str) and any(ord(c) > 127 for c in name):
                 pass  # 中文名可能乱码
             lv = val.get('Level', '?')
-            hp = val.get('Hp', '?')
+            # 游戏使用 BaseAttr.Hp 作为当前HP
+            ba = val.get('BaseAttr', {})
+            hp = ba.get('Hp', val.get('Hp', '?'))
             maxhp = val.get('MaxHp', '?')
             fa = val.get('FightAttr', {})
             pa = fa.get('PhysicalAttack', '?')
@@ -261,7 +282,11 @@ class HSLEditor:
 
     # ---------- 数据加载/保存 ----------
     def open_file(self):
-        path = filedialog.askopenfilename(filetypes=[("SAV files","*.sav"),("All files","*.*")])
+        init_dir = DEFAULT_SAVE_DIR if DEFAULT_SAVE_DIR else None
+        path = filedialog.askopenfilename(
+            filetypes=[("SAV files","*.sav"),("All files","*.*")],
+            initialdir=init_dir
+        )
         if not path:
             return
         try:
@@ -292,9 +317,9 @@ class HSLEditor:
                     break
 
             self.refresh_ui()
-            messagebox.showinfo("成功", f"已加载: {os.path.basename(path)}")
+            self._show_status(f"✓ 已加载: {os.path.basename(path)}")
         except Exception as e:
-            messagebox.showinfo("错误", f"加载失败: {e}")
+            self._show_status(f"✗ 加载失败: {e}", is_error=True)
 
     def refresh_ui(self):
         if not self.save_data:
@@ -315,9 +340,12 @@ class HSLEditor:
                          "CriticalRatio","DodgeRatio","FireRes","WaterRes","AirRes","EarthRes","MindRes"]:
                 self.record_vars[f"FightAttr.{key}"].set(str(fa.get(key, 0)))
 
-        # 战场属性
+        # 战场属性（游戏实际使用 BaseAttr.Hp 作为当前HP）
         if self.entity:
-            for key in ["Hp","MaxHp","Mp","MaxMp","Level","Exp"]:
+            ba = self.entity.get('BaseAttr', {})
+            self.battle_vars["Hp"].set(str(ba.get('Hp', 0)))
+            self.battle_vars["MaxHp"].set(str(self.entity.get('MaxHp', 0)))
+            for key in ["Mp","MaxMp","Level","Exp"]:
                 self.battle_vars[key].set(str(self.entity.get(key, 0)))
             efa = self.entity.get('FightAttr', {})
             for key in ["Str","Dex","Mind","Con","PhysicalAttack","MagicAttack","Defense","Speed","Move","CriticalRatio","DodgeRatio"]:
@@ -358,15 +386,34 @@ class HSLEditor:
                          "CriticalRatio","DodgeRatio","FireRes","WaterRes","AirRes","EarthRes","MindRes"]:
                 fa[key] = int(self.record_vars[f"FightAttr.{key}"].get() or 0)
 
-        # 战场属性 -> entity
+        # 战场属性 -> entity（游戏使用 BaseAttr.Hp 作为当前HP）
         if self.entity:
-            for key in ["Hp","MaxHp","Mp","MaxMp"]:
-                self.entity[key] = int(self.battle_vars[key].get() or 0)
+            new_hp = int(self.battle_vars["Hp"].get() or 0)
+            new_maxhp = int(self.battle_vars["MaxHp"].get() or 0)
+            # 写入 BaseAttr.Hp（游戏实际读取的当前HP）
+            self.entity.setdefault('BaseAttr', {})['Hp'] = new_hp
+            # 同步到顶层和 FightAttr
+            self.entity['Hp'] = new_hp
+            self.entity['MaxHp'] = new_maxhp
+            self.entity['Mp'] = int(self.battle_vars["Mp"].get() or 0)
+            self.entity['MaxMp'] = int(self.battle_vars["MaxMp"].get() or 0)
             self.entity['Level'] = int(self.battle_vars["Level"].get() or 0)
             self.entity['Exp'] = int(self.battle_vars["Exp"].get() or 0)
             efa = self.entity.setdefault('FightAttr', {})
-            for key in ["Str","Dex","Mind","Con","PhysicalAttack","MagicAttack","Defense","Speed","Move","CriticalRatio","DodgeRatio"]:
+            efa['Hp'] = new_hp
+            efa['MaxHp'] = new_maxhp
+            for key in ["Hp","MaxHp","Mp","MaxMp","Str","Dex","Mind","Con","PhysicalAttack","MagicAttack","Defense","Speed","Move","CriticalRatio","DodgeRatio"]:
                 efa[key] = int(self.battle_vars[key].get() or 0)
+
+            # 同步战场HP到存档记录，确保加载存档后HP不被覆盖
+            if self.record and self.entity.get('PlayerId') == 100:
+                rec_fa = self.record.setdefault('FightAttr', {})
+                new_hp = int(self.battle_vars["Hp"].get() or 0)
+                new_maxhp = int(self.battle_vars["MaxHp"].get() or 0)
+                rec_fa['Hp'] = new_hp
+                rec_fa['MaxHp'] = new_maxhp
+                # 同步基础HP（游戏使用 BaseAttr.Hp 作为当前HP）
+                self.record.setdefault('BaseAttr', {})['Hp'] = new_hp
 
         # 装备
         if self.entity:
@@ -401,24 +448,51 @@ class HSLEditor:
 
     def save_file(self):
         if not self.save_data:
-            messagebox.showinfo("提示", "请先打开存档")
+            self._show_status("请先打开存档", is_error=True)
             return
         self._apply_changes()
-        path = filedialog.asksaveasfilename(
-            defaultextension=".sav",
-            filetypes=[("SAV files","*.sav")],
-            initialfile=os.path.basename(self.sav_path) if self.sav_path else "gamedata_0.sav"
-        )
-        if not path:
-            return
+
+        # 确定保存路径：优先使用已打开的文件路径
+        if self.sav_path:
+            path = self.sav_path
+        else:
+            # 没有已打开路径时才弹出对话框
+            init_dir = DEFAULT_SAVE_DIR if DEFAULT_SAVE_DIR else None
+            path = filedialog.asksaveasfilename(
+                defaultextension=".sav",
+                filetypes=[("SAV files","*.sav")],
+                initialdir=init_dir,
+                initialfile="gamedata_0.sav"
+            )
+            if not path:
+                return
+
         try:
+            # 创建 .bak 备份（只保留一个，已存在则覆盖）
+            if os.path.exists(path):
+                bak_path = path + '.bak'
+                # 如果 .bak 已存在，先删除再重命名，避免 shutil.move 的问题
+                if os.path.exists(bak_path):
+                    os.remove(bak_path)
+                os.rename(path, bak_path)
+
             encrypt_file(path, self.save_data)
-            messagebox.showinfo("成功", f"已保存: {os.path.basename(path)}\n请将文件复制到游戏存档目录后加载。")
+            self._show_status(f"✓ 已保存: {os.path.basename(path)}  (备份: {os.path.basename(path)}.bak)")
         except Exception as e:
-            messagebox.showinfo("错误", f"保存失败: {e}")
+            self._show_status(f"✗ 保存失败: {e}", is_error=True)
 
     def run(self):
         self.root.mainloop()
+
+    def _show_status(self, msg, is_error=False):
+        """在底部状态栏显示消息，错误时显示红色"""
+        self.status_var.set(msg)
+        if is_error:
+            self.status_label.configure(foreground='red')
+        else:
+            self.status_label.configure(foreground='green')
+        # 5秒后恢复默认颜色
+        self.root.after(5000, lambda: self.status_label.configure(foreground=''))
 
 if __name__ == '__main__':
     app = HSLEditor()
