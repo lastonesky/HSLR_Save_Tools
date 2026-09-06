@@ -65,8 +65,15 @@ def main():
                     print(f"\n{f}: ERROR - {e}")
 
     elif cmd == 'encrypt' and len(sys.argv) >= 4:
-        with open(sys.argv[2], 'r', encoding='utf-8') as fh:
-            json_str = fh.read()
+        raw = open(sys.argv[2], 'rb').read()
+        for enc in ('utf-8-sig', 'gbk'):
+            try:
+                json_str = raw.decode(enc)
+                break
+            except UnicodeDecodeError:
+                continue
+        else:
+            json_str = raw.decode('utf-8', errors='replace')
         json.loads(json_str)  # validate
         encrypted = encrypt_data(json_str)
         with open(sys.argv[3], 'wb') as fh:

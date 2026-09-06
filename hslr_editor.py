@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""幻世录重制版 (HSLR) 存档编辑器 - 主角属性修改"""
+"""幻世录重制版 (HSLR) 存档编辑器 - 全队角色属性修改"""
 import json, gzip, os, sys, copy
 from Crypto.Cipher import AES
 from Crypto.Util.Padding import unpad, pad
@@ -56,18 +56,30 @@ class HSLEditor:
         self.sav_path = None
         self.gplay = None
         self.stage = None
-        self.record = None  # GDCharRecordInfo["100"]
-        self.entity = None  # charEntitiesMap中PlayerId=100的战场实体
+        # ---- 多角色支持 ----
+        self.all_records = {}   # {PlayerId: record_dict}  GDCharRecordInfo
+        self.all_entities = {}  # {PlayerId: (entity_key, entity_dict)}  charEntitiesMap 中己方(Camp=2)
+        self.current_pid = None # 当前选中的角色 PlayerId
+        self.record = None      # 当前角色的 GDCharRecordInfo["pid"]
+        self.entity = None      # 当前角色的战场实体
+        self.entity_key = None  # 当前角色在 charEntitiesMap 中的 key
 
         self._build_ui()
 
     def _build_ui(self):
-        # 顶部：文件选择
+        # 顶部：文件选择 + 角色选择
         top = ttk.Frame(self.root, padding=8)
         top.pack(fill='x')
         ttk.Button(top, text="打开存档 (.sav)", command=self.open_file).pack(side='left')
         self.path_var = tk.StringVar(value="请先打开存档文件")
         ttk.Label(top, textvariable=self.path_var, foreground='gray').pack(side='left', padx=10)
+
+        # 角色选择器
+        ttk.Label(top, text="当前角色:").pack(side='left', padx=(20, 4))
+        self.char_var = tk.StringVar()
+        self.char_combo = ttk.Combobox(top, textvariable=self.char_var, state='readonly', width=30)
+        self.char_combo.pack(side='left', padx=4)
+        self.char_combo.bind('<<ComboboxSelected>>', self._on_char_selected)
 
         # Notebook 分页
         nb = ttk.Notebook(self.root, padding=4)
@@ -103,6 +115,7 @@ class HSLEditor:
         bot.pack(fill='x')
         ttk.Button(bot, text="💾 保存存档", command=self.save_file).pack(side='right')
         ttk.Button(bot, text="🔄 刷新显示", command=self.refresh_ui).pack(side='right', padx=8)
+        ttk.Button(bot, text="⚡ 全队满属性", command=self.batch_max_all).pack(side='left', padx=8)
 
         # 底部状态栏
         self.status_frame = ttk.Frame(self.root)
@@ -206,6 +219,54 @@ class HSLEditor:
         if "Exp" in self.battle_vars:
             self.battle_vars["Exp"].set("99999")
 
+    def batch_max_all(self):
+        """批量将所有己方角色属性设为最大值"""
+        if not self.all_entities:
+            self._show_status("没有可修改的己方角色", is_error=True)
+            return
+        # 先把当前角色 UI 数据写回
+        self._apply_current_to_data()
+        count = 0
+        for pid, (ekey, ent) in self.all_entities.items():
+            rec = self.all_records.get(pid)
+            # 战场实体
+            ent['Level'] = 99
+            ent['Exp'] = 99999
+            ent['MaxHp'] = 9999
+            ent['Hp'] = 9999
+            ent['MaxMp'] = 999
+            ent['Mp'] = 999
+            ent.setdefault('BaseAttr', {})['Hp'] = 9999
+            efa = ent.setdefault('FightAttr', {})
+            for k in ["Str","Dex","Mind","Con","PhysicalAttack","MagicAttack","Defense","Speed"]:
+                efa[k] = 999
+            for k in ["CriticalRatio","DodgeRatio"]:
+                efa[k] = 100
+            efa['Hp'] = 9999
+            efa['MaxHp'] = 9999
+            efa['Mp'] = 999
+            efa['MaxMp'] = 999
+            # 存档记录
+            if rec:
+                rec['Level'] = 99
+                rec['Exp'] = 99999
+                rec_ba = rec.setdefault('BaseAttr', {})
+                rec_ba['Hp'] = 9999
+                rec_fa = rec.setdefault('FightAttr', {})
+                rec_fa['Hp'] = 9999
+                rec_fa['MaxHp'] = 9999
+                rec_fa['Mp'] = 999
+                rec_fa['MaxMp'] = 999
+                for k in ["Str","Dex","Mind","Con","PhysicalAttack","MagicAttack","Defense","Speed"]:
+                    rec_fa[k] = 999
+                for k in ["CriticalRatio","DodgeRatio"]:
+                    rec_fa[k] = 100
+            count += 1
+        # 刷新当前角色显示
+        self._set_current_char(self.current_pid)
+        self.refresh_ui()
+        self._show_status(f"✓ 已全队满属性: {count} 个角色")
+
     # ---------- 装备/道具/技能 ----------
     def _build_equip(self, parent):
         self.equip_vars = {}
@@ -252,8 +313,200 @@ class HSLEditor:
         self.tree.configure(yscrollcommand=sb.set)
         self.tree.pack(side='left', fill='both', expand=True)
         sb.pack(side='right', fill='y')
+        # 双击单元格进行内联编辑
+        self.tree.bind('<Double-1>', self._on_roster_dblclick)
+        # 当前内联编辑控件
+        self._inline_edit_widget = None
+        self._inline_edit_col = None
+        self._inline_edit_row = None
+
+    def _on_roster_dblclick(self, event):
+        """双击单元格进行内联编辑"""
+        # 获取点击的行和列
+        row_id = self.tree.identify_row(event.y)
+        col = self.tree.identify_column(event.x)
+        
+        if not row_id or not col:
+            return
+        
+        # 获取列索引（#1, #2, ... -> 0, 1, ...）
+        col_idx = int(col.replace('#', '')) - 1
+        cols = ("ID","名称","等级","HP","MaxHP","物攻","魔攻","防御","阵营")
+        
+        # ID和阵营列不允许编辑
+        if cols[col_idx] in ("ID", "阵营"):
+            self._show_status("ID和阵营列不支持直接编辑", is_error=True)
+            return
+        
+        # 获取当前值
+        vals = self.tree.item(row_id, 'values')
+        if not vals:
+            return
+        
+        current_val = vals[col_idx]
+        
+        # 获取单元格位置和大小
+        bbox = self.tree.bbox(row_id, col)
+        if not bbox:
+            return
+        
+        x, y, w, h = bbox
+        
+        # 销毁之前的编辑控件
+        self._cancel_inline_edit()
+        
+        # 创建内联编辑框
+        self._inline_edit_widget = ttk.Entry(self.tree, width=w//8)
+        self._inline_edit_widget.place(x=x, y=y, width=w, height=h)
+        self._inline_edit_widget.insert(0, current_val)
+        self._inline_edit_widget.select_range(0, 'end')
+        self._inline_edit_widget.focus()
+        
+        # 保存编辑上下文
+        self._inline_edit_row = row_id
+        self._inline_edit_col = col_idx
+        
+        # 绑定回车和失去焦点事件
+        self._inline_edit_widget.bind('<Return>', lambda e: self._save_inline_edit())
+        self._inline_edit_widget.bind('<Escape>', lambda e: self._cancel_inline_edit())
+        self._inline_edit_widget.bind('<FocusOut>', lambda e: self._save_inline_edit())
+    
+    def _cancel_inline_edit(self):
+        """取消内联编辑"""
+        if self._inline_edit_widget:
+            self._inline_edit_widget.destroy()
+            self._inline_edit_widget = None
+    
+    def _save_inline_edit(self):
+        """保存内联编辑结果"""
+        if not self._inline_edit_widget or not self._inline_edit_row:
+            return
+        
+        new_val = self._inline_edit_widget.get().strip()
+        row_id = self._inline_edit_row  # 这是 charEntitiesMap 的 key
+        col_idx = self._inline_edit_col
+        cols = ("ID","名称","等级","HP","MaxHP","物攻","魔攻","防御","阵营")
+        col_name = cols[col_idx]
+        
+        # 销毁编辑控件
+        self._cancel_inline_edit()
+        
+        # 直接从 charEntitiesMap 获取数据（使用 row_id 作为 key）
+        cem = self.stage.get('charEntitiesMap', {})
+        ent_str = cem.get(row_id)
+        if not ent_str:
+            self._show_status(f"未找到实体 key:{row_id} 的数据", is_error=True)
+            return
+        
+        ent = json.loads(ent_str) if isinstance(ent_str, str) else ent_str
+        pid = ent.get('PlayerId')
+        rec = self.all_records.get(pid) if pid else None
+        
+        try:
+            if col_name == "名称":
+                ent['Name'] = new_val
+                if rec:
+                    rec['Name'] = new_val
+            elif col_name == "等级":
+                val = int(new_val)
+                ent['Level'] = val
+                if rec:
+                    rec['Level'] = val
+            elif col_name == "HP":
+                val = int(new_val)
+                ent.setdefault('BaseAttr', {})['Hp'] = val
+                ent['Hp'] = val
+                ent.setdefault('FightAttr', {})['Hp'] = val
+                if rec:
+                    rec.setdefault('BaseAttr', {})['Hp'] = val
+                    rec.setdefault('FightAttr', {})['Hp'] = val
+            elif col_name == "MaxHP":
+                val = int(new_val)
+                ent['MaxHp'] = val
+                ent.setdefault('FightAttr', {})['MaxHp'] = val
+                if rec:
+                    rec.setdefault('FightAttr', {})['MaxHp'] = val
+            elif col_name == "物攻":
+                val = int(new_val)
+                ent.setdefault('FightAttr', {})['PhysicalAttack'] = val
+                if rec:
+                    rec.setdefault('FightAttr', {})['PhysicalAttack'] = val
+            elif col_name == "魔攻":
+                val = int(new_val)
+                ent.setdefault('FightAttr', {})['MagicAttack'] = val
+                if rec:
+                    rec.setdefault('FightAttr', {})['MagicAttack'] = val
+            elif col_name == "防御":
+                val = int(new_val)
+                ent.setdefault('FightAttr', {})['Defense'] = val
+                if rec:
+                    rec.setdefault('FightAttr', {})['Defense'] = val
+            
+            # 写回 charEntitiesMap
+            cem[row_id] = ent
+            
+            # 如果是己方角色，同步更新 all_entities
+            if pid and pid in self.all_entities:
+                self.all_entities[pid] = (row_id, ent)
+            
+            # 刷新表格显示
+            self._load_roster()
+            self._show_status(f"✓ 已更新 {ent.get('Name', row_id)} 的{col_name}")
+            
+        except ValueError:
+            self._show_status(f"请输入有效的数字", is_error=True)
+
+    def _on_char_selected(self, event=None):
+        """角色选择器变更时切换当前编辑角色"""
+        sel = self.char_combo.get()
+        if not sel:
+            return
+        # 格式: "Name (PID:100)"
+        try:
+            pid = int(sel.split("(PID:")[-1].rstrip(")"))
+        except (ValueError, IndexError):
+            return
+        # 先把当前角色的数据从 UI 写回内存
+        self._apply_current_to_data()
+        # 切换到新角色
+        self._set_current_char(pid)
+        self.refresh_ui()
+
+    def _set_current_char(self, pid):
+        """设置当前编辑角色"""
+        self.current_pid = pid
+        self.record = self.all_records.get(pid)
+        ent = self.all_entities.get(pid)
+        if ent:
+            self.entity_key, self.entity = ent
+        else:
+            self.entity_key, self.entity = None, None
+
+    def _build_char_list(self):
+        """根据已加载数据构建角色下拉列表"""
+        entries = []
+        for pid in sorted(self.all_entities.keys()):
+            ent = self.all_entities[pid][1]
+            name = ent.get('Name', f'角色{pid}')
+            lv = ent.get('Level', '?')
+            entries.append(f"{name} Lv.{lv} (PID:{pid})")
+        # 也加上只有 record 没有 entity 的角色
+        for pid in sorted(self.all_records.keys()):
+            if pid not in self.all_entities:
+                rec = self.all_records[pid]
+                name = rec.get('Name', f'角色{pid}')
+                lv = rec.get('Level', '?')
+                entries.append(f"{name} Lv.{lv} (PID:{pid}) [仅存档]")
+        self.char_combo['values'] = entries
+        # 选中当前角色
+        if self.current_pid is not None:
+            for i, e in enumerate(entries):
+                if f"(PID:{self.current_pid})" in e:
+                    self.char_combo.current(i)
+                    break
 
     def _load_roster(self):
+        """刷新全角色一览表格"""
         self.tree.delete(*self.tree.get_children())
         if not self.stage:
             return
@@ -264,10 +517,7 @@ class HSLEditor:
                 except: continue
             pid = val.get('PlayerId', '?')
             name = val.get('Name', key)
-            if isinstance(name, str) and any(ord(c) > 127 for c in name):
-                pass  # 中文名可能乱码
             lv = val.get('Level', '?')
-            # 游戏使用 BaseAttr.Hp 作为当前HP
             ba = val.get('BaseAttr', {})
             hp = ba.get('Hp', val.get('Hp', '?'))
             maxhp = val.get('MaxHp', '?')
@@ -277,7 +527,6 @@ class HSLEditor:
             df = val.get('Defense', '?')
             camp = val.get('Camp', '?')
             camp_str = {1: "敌方", 2: "我方", 3: "中立"}.get(camp, str(camp))
-            iid = f"P{pid}" if pid != '?' else key
             self.tree.insert('', 'end', iid=key, values=(pid, name, lv, hp, maxhp, pa, ma, df, camp_str))
 
     # ---------- 数据加载/保存 ----------
@@ -302,24 +551,111 @@ class HSLEditor:
             st_raw = self.save_data.get('stage', '{}')
             self.stage = json.loads(st_raw) if isinstance(st_raw, str) else st_raw
 
-            # 存档角色记录
+            # 收集所有己方角色的存档记录 (GDCharRecordInfo)
             chars = self.gplay.get('GDCharRecordInfo', {})
-            self.record = chars.get('100', None)
+            self.all_records = {}
+            for pid_str, rec in chars.items():
+                try:
+                    pid = int(pid_str)
+                except (ValueError, TypeError):
+                    continue
+                if isinstance(rec, str):
+                    try: rec = json.loads(rec)
+                    except: continue
+                if isinstance(rec, dict):
+                    self.all_records[pid] = rec
 
-            # 战场实体
+            # 收集所有己方战场实体 (charEntitiesMap, Camp=2)
             cem = self.stage.get('charEntitiesMap', {})
-            self.entity = None
+            self.all_entities = {}
+            first_pid = None
             for key, val in cem.items():
                 v = json.loads(val) if isinstance(val, str) else val
-                if v.get('PlayerId') == 100 and v.get('Camp') == 2:
-                    self.entity = v
-                    self.entity_key = key
-                    break
+                if not isinstance(v, dict):
+                    continue
+                pid = v.get('PlayerId')
+                if pid is not None and v.get('Camp') == 2:
+                    self.all_entities[pid] = (key, v)
+                    if first_pid is None:
+                        first_pid = pid
 
+            # 默认选中第一个角色（优先主角 PID=100）
+            default_pid = 100 if 100 in self.all_entities else first_pid
+            if default_pid is None and self.all_records:
+                default_pid = next(iter(self.all_records))
+            self._set_current_char(default_pid)
+            self._build_char_list()
             self.refresh_ui()
-            self._show_status(f"✓ 已加载: {os.path.basename(path)}")
+            count = len(self.all_entities)
+            self._show_status(f"✓ 已加载: {os.path.basename(path)}  (己方角色: {count})")
         except Exception as e:
             self._show_status(f"✗ 加载失败: {e}", is_error=True)
+
+    def _apply_current_to_data(self):
+        """将当前角色的 UI 值写回到内存数据结构（不触发保存）"""
+        if not self.save_data or self.current_pid is None:
+            return
+        pid = self.current_pid
+
+        # 基础信息 + 存档属性 -> record
+        rec = self.all_records.get(pid)
+        if rec:
+            rec['Level'] = int(self.basic_vars["Level"].get() or 0)
+            rec['Exp'] = int(self.basic_vars["Exp"].get() or 0)
+            ba = rec.setdefault('BaseAttr', {})
+            for key in ["Str","Dex","Mind","Con","Hp","Mp"]:
+                ba[key] = int(self.record_vars[f"BaseAttr.{key}"].get() or 0)
+            fa = rec.setdefault('FightAttr', {})
+            for key in ["Hp","MaxHp","Mp","MaxMp","Str","Dex","Mind","Con",
+                         "PhysicalAttack","MagicAttack","Defense","Speed","Move",
+                         "CriticalRatio","DodgeRatio","FireRes","WaterRes","AirRes","EarthRes","MindRes"]:
+                fa[key] = int(self.record_vars[f"FightAttr.{key}"].get() or 0)
+
+        # 战场属性 -> entity
+        ent_info = self.all_entities.get(pid)
+        if ent_info:
+            ekey, ent = ent_info
+            new_hp = int(self.battle_vars["Hp"].get() or 0)
+            new_maxhp = int(self.battle_vars["MaxHp"].get() or 0)
+            new_mp = int(self.battle_vars["Mp"].get() or 0)
+            new_maxmp = int(self.battle_vars["MaxMp"].get() or 0)
+            ent.setdefault('BaseAttr', {})['Hp'] = new_hp
+            ent['Hp'] = new_hp
+            ent['MaxHp'] = new_maxhp
+            ent.setdefault('BaseAttr', {})['Mp'] = new_mp
+            ent['Mp'] = new_mp
+            ent['MaxMp'] = new_maxmp
+            ent['Level'] = int(self.battle_vars["Level"].get() or 0)
+            ent['Exp'] = int(self.battle_vars["Exp"].get() or 0)
+            efa = ent.setdefault('FightAttr', {})
+            efa['Hp'] = new_hp
+            efa['MaxHp'] = new_maxhp
+            for key in ["Hp","MaxHp","Mp","MaxMp","Str","Dex","Mind","Con","PhysicalAttack","MagicAttack","Defense","Speed","Move","CriticalRatio","DodgeRatio"]:
+                efa[key] = int(self.battle_vars[key].get() or 0)
+
+            # 装备/道具/技能
+            equips = {}
+            for slot in ["0","1","2","3","4"]:
+                val = self.equip_vars[f"Equip.{slot}"].get().strip()
+                if val:
+                    equips[slot] = int(val)
+            ent['EquipIDs'] = equips
+            items_str = self.items_var.get().strip()
+            ent['ItemIDs'] = [int(x.strip()) for x in items_str.split(',') if x.strip()] if items_str else []
+            ent['NrlSkillID'] = int(self.nrl_skill_var.get() or 0)
+            ms = self.magic_skill_var.get().strip()
+            ent['MagicSkillIDs'] = [int(x.strip()) for x in ms.split(',') if x.strip()] if ms else []
+            ss = self.sp_skill_var.get().strip()
+            ent['SpSkillIDs'] = [int(x.strip()) for x in ss.split(',') if x.strip()] if ss else []
+
+            # 同步战场数据到存档记录
+            if rec:
+                rec.setdefault('FightAttr', {})['Hp'] = new_hp
+                rec['FightAttr']['MaxHp'] = new_maxhp
+                rec.setdefault('BaseAttr', {})['Hp'] = new_hp
+                rec['FightAttr']['Mp'] = new_mp
+                rec['FightAttr']['MaxMp'] = new_maxmp
+                rec['BaseAttr']['Mp'] = new_mp
 
     def refresh_ui(self):
         if not self.save_data:
@@ -328,6 +664,9 @@ class HSLEditor:
         if self.record:
             self.basic_vars["Level"].set(str(self.record.get('Level', '')))
             self.basic_vars["Exp"].set(str(self.record.get('Exp', '')))
+        else:
+            self.basic_vars["Level"].set("")
+            self.basic_vars["Exp"].set("")
 
         # 存档属性
         if self.record:
@@ -339,8 +678,11 @@ class HSLEditor:
                          "PhysicalAttack","MagicAttack","Defense","Speed","Move",
                          "CriticalRatio","DodgeRatio","FireRes","WaterRes","AirRes","EarthRes","MindRes"]:
                 self.record_vars[f"FightAttr.{key}"].set(str(fa.get(key, 0)))
+        else:
+            for k, v in self.record_vars.items():
+                v.set("0")
 
-        # 战场属性（游戏实际使用 BaseAttr.Hp 作为当前HP）
+        # 战场属性
         if self.entity:
             ba = self.entity.get('BaseAttr', {})
             self.battle_vars["Hp"].set(str(ba.get('Hp', 0)))
@@ -350,6 +692,9 @@ class HSLEditor:
             efa = self.entity.get('FightAttr', {})
             for key in ["Str","Dex","Mind","Con","PhysicalAttack","MagicAttack","Defense","Speed","Move","CriticalRatio","DodgeRatio"]:
                 self.battle_vars[key].set(str(efa.get(key, 0)))
+        else:
+            for k, v in self.battle_vars.items():
+                v.set("0")
 
         # 装备/道具/技能
         if self.entity:
@@ -361,88 +706,33 @@ class HSLEditor:
             self.nrl_skill_var.set(str(self.entity.get('NrlSkillID', '')))
             self.magic_skill_var.set(','.join(str(x) for x in self.entity.get('MagicSkillIDs', [])))
             self.sp_skill_var.set(','.join(str(x) for x in self.entity.get('SpSkillIDs', [])))
+        else:
+            for k, v in self.equip_vars.items():
+                v.set("")
+            self.items_var.set("")
+            self.nrl_skill_var.set("")
+            self.magic_skill_var.set("")
+            self.sp_skill_var.set("")
 
         # 全角色
         self._load_roster()
 
     def _apply_changes(self):
-        """将 UI 值写回数据结构"""
+        """将当前角色的 UI 值写回内存，再序列化回 save_data（供保存用）"""
         if not self.save_data:
             return
+        # 先把当前角色从 UI 写回内存
+        self._apply_current_to_data()
 
-        # 基础信息 -> record
-        if self.record:
-            self.record['Level'] = int(self.basic_vars["Level"].get() or 0)
-            self.record['Exp'] = int(self.basic_vars["Exp"].get() or 0)
+        # 将所有角色的修改写回 stage/gplay
+        cem = self.stage.setdefault('charEntitiesMap', {})
+        for pid, (ekey, ent) in self.all_entities.items():
+            cem[ekey] = ent
 
-        # 存档属性 -> record
-        if self.record:
-            ba = self.record.setdefault('BaseAttr', {})
-            for key in ["Str","Dex","Mind","Con","Hp","Mp"]:
-                ba[key] = int(self.record_vars[f"BaseAttr.{key}"].get() or 0)
-            fa = self.record.setdefault('FightAttr', {})
-            for key in ["Hp","MaxHp","Mp","MaxMp","Str","Dex","Mind","Con",
-                         "PhysicalAttack","MagicAttack","Defense","Speed","Move",
-                         "CriticalRatio","DodgeRatio","FireRes","WaterRes","AirRes","EarthRes","MindRes"]:
-                fa[key] = int(self.record_vars[f"FightAttr.{key}"].get() or 0)
+        records = self.gplay.setdefault('GDCharRecordInfo', {})
+        for pid, rec in self.all_records.items():
+            records[str(pid)] = rec
 
-        # 战场属性 -> entity（游戏使用 BaseAttr.Hp 作为当前HP）
-        if self.entity:
-            new_hp = int(self.battle_vars["Hp"].get() or 0)
-            new_maxhp = int(self.battle_vars["MaxHp"].get() or 0)
-            # 写入 BaseAttr.Hp（游戏实际读取的当前HP）
-            self.entity.setdefault('BaseAttr', {})['Hp'] = new_hp
-            # 同步到顶层和 FightAttr
-            self.entity['Hp'] = new_hp
-            self.entity['MaxHp'] = new_maxhp
-            self.entity['Mp'] = int(self.battle_vars["Mp"].get() or 0)
-            self.entity['MaxMp'] = int(self.battle_vars["MaxMp"].get() or 0)
-            self.entity['Level'] = int(self.battle_vars["Level"].get() or 0)
-            self.entity['Exp'] = int(self.battle_vars["Exp"].get() or 0)
-            efa = self.entity.setdefault('FightAttr', {})
-            efa['Hp'] = new_hp
-            efa['MaxHp'] = new_maxhp
-            for key in ["Hp","MaxHp","Mp","MaxMp","Str","Dex","Mind","Con","PhysicalAttack","MagicAttack","Defense","Speed","Move","CriticalRatio","DodgeRatio"]:
-                efa[key] = int(self.battle_vars[key].get() or 0)
-
-            # 同步战场HP到存档记录，确保加载存档后HP不被覆盖
-            if self.record and self.entity.get('PlayerId') == 100:
-                rec_fa = self.record.setdefault('FightAttr', {})
-                new_hp = int(self.battle_vars["Hp"].get() or 0)
-                new_maxhp = int(self.battle_vars["MaxHp"].get() or 0)
-                rec_fa['Hp'] = new_hp
-                rec_fa['MaxHp'] = new_maxhp
-                # 同步基础HP（游戏使用 BaseAttr.Hp 作为当前HP）
-                self.record.setdefault('BaseAttr', {})['Hp'] = new_hp
-
-        # 装备
-        if self.entity:
-            equips = {}
-            for slot in ["0","1","2","3","4"]:
-                val = self.equip_vars[f"Equip.{slot}"].get().strip()
-                if val:
-                    equips[slot] = int(val)
-            self.entity['EquipIDs'] = equips
-
-            # 道具
-            items_str = self.items_var.get().strip()
-            self.entity['ItemIDs'] = [int(x.strip()) for x in items_str.split(',') if x.strip()] if items_str else []
-
-            # 技能
-            self.entity['NrlSkillID'] = int(self.nrl_skill_var.get() or 0)
-            ms = self.magic_skill_var.get().strip()
-            self.entity['MagicSkillIDs'] = [int(x.strip()) for x in ms.split(',') if x.strip()] if ms else []
-            ss = self.sp_skill_var.get().strip()
-            self.entity['SpSkillIDs'] = [int(x.strip()) for x in ss.split(',') if x.strip()] if ss else []
-
-        # 同步回 stage/gplay
-        if self.entity:
-            cem = self.stage.setdefault('charEntitiesMap', {})
-            cem[self.entity_key] = self.entity
-        if self.record:
-            self.gplay.setdefault('GDCharRecordInfo', {})['100'] = self.record
-
-        # 写回 save_data
         self.save_data['gplay'] = json.dumps(self.gplay, ensure_ascii=False)
         self.save_data['stage'] = json.dumps(self.stage, ensure_ascii=False)
 
