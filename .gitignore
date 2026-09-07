@@ -76,3 +76,19 @@ Thumbs.db
 !package.json
 
 Il2CppDumper/
+
+# .NET / C#
+[Bb]in/
+[Oo]bj/
+[Rr]elease/
+[Xx]64/
+[Xx]86/
+[Dd]ebug/
+*.user
+*.userosscache
+*.sln.docstates
+*.suo
+.vs/
+.vs*
+[Tt]est[Rr]esults/
+[Pp]ublish/
