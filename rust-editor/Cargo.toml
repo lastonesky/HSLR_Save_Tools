@@ -1,0 +1,38 @@
+[package]
+name = "hslr-save-editor"
+version = "2.0.0"
+edition = "2021"
+description = "幻世录重制版存档编辑器 - Rust TUI版本"
+authors = ["HSLR Save Tools"]
+
+[dependencies]
+# AES-256-CBC 加解密
+aes = "0.8"
+cbc = "0.1"
+cipher = "0.4"
+
+# GZip 压缩/解压
+flate2 = "1.0"
+
+# JSON 序列化/反序列化
+serde = { version = "1.0", features = ["derive"] }
+serde_json = "1.0"
+
+# TUI 框架
+ratatui = "0.28"
+crossterm = "0.28"
+
+# 文件对话框 (可选)
+rfd = "0.15"
+
+# 错误处理
+anyhow = "1.0"
+
+# 时间处理
+chrono = "0.4"
+
+[profile.release]
+opt-level = 3
+lto = true
+codegen-units = 1
+strip = true

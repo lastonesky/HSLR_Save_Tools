@@ -70,9 +70,14 @@ venv.bak/
 .DS_Store
 Thumbs.db
 
+# Rust
+rust-editor/target/
+rust-editor/Cargo.lock
+
 # Project specific
 *.sav
 *.json
 !package.json
 
 Il2CppDumper/
+.vs/
