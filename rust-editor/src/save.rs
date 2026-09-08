@@ -1,11 +1,11 @@
 use serde::{Deserialize, Serialize};
 use std::collections::HashMap;
 
-/// 存档顶层结构
+/// 存档顶层结构 - 使用serde_json::Value避免类型不匹配问题
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct SaveData {
     #[serde(rename = "SaveVersion")]
-    pub save_version: Option<i64>,
+    pub save_version: Option<serde_json::Value>,
 
     /// 游戏主数据 (JSON字符串)
     #[serde(rename = "gplay")]
@@ -39,268 +39,67 @@ pub struct SaveData {
     pub extra: HashMap<String, serde_json::Value>,
 }
 
-/// 游戏主数据 (gplay)
-#[derive(Debug, Clone, Serialize, Deserialize)]
-pub struct GplayData {
-    #[serde(rename = "Level")]
-    pub level: Option<i64>,
-
-    #[serde(rename = "Exp")]
-    pub exp: Option<i64>,
-
-    #[serde(rename = "Gold")]
-    pub gold: Option<i64>,
-
-    #[serde(rename = "StageId")]
-    pub stage_id: Option<i64>,
-
-    #[serde(rename = "PlayTime")]
-    pub play_time: Option<f64>,
-
-    #[serde(rename = "Version")]
-    pub version: Option<i64>,
-
-    /// 角色存档记录 (PlayerId -> 角色数据)
-    #[serde(rename = "GDCharRecordInfo")]
-    pub char_records: Option<HashMap<String, CharacterRecord>>,
-
-    /// 其他字段
-    #[serde(flatten)]
-    pub extra: HashMap<String, serde_json::Value>,
+/// 从serde_json::Value中提取i64
+pub fn extract_i64(value: &serde_json::Value) -> Option<i64> {
+    match value {
+        serde_json::Value::Number(n) => n.as_i64(),
+        serde_json::Value::String(s) => {
+            if s.is_empty() {
+                None
+            } else {
+                s.parse::<i64>().ok()
+            }
+        }
+        _ => None,
+    }
 }
 
-/// 角色存档记录 (GDCharRecordInfo)
-#[derive(Debug, Clone, Serialize, Deserialize)]
-pub struct CharacterRecord {
-    #[serde(rename = "PlayerId")]
-    pub player_id: Option<i64>,
-
-    #[serde(rename = "Name")]
-    pub name: Option<String>,
-
-    #[serde(rename = "Level")]
-    pub level: Option<i64>,
-
-    #[serde(rename = "Exp")]
-    pub exp: Option<i64>,
-
-    /// 基础属性 (永久生效)
-    #[serde(rename = "BaseAttr")]
-    pub base_attr: Option<BaseAttr>,
-
-    /// 永久加成 (永久生效，不会被重算覆盖)
-    #[serde(rename = "PermanentFightAttr")]
-    pub permanent_fight_attr: Option<PermanentFightAttr>,
-
-    /// 战斗属性 (自动计算，只读参考)
-    #[serde(rename = "FightAttr")]
-    pub fight_attr: Option<FightAttr>,
-
-    /// 其他字段
-    #[serde(flatten)]
-    pub extra: HashMap<String, serde_json::Value>,
+/// 从serde_json::Value中提取f64
+pub fn extract_f64(value: &serde_json::Value) -> Option<f64> {
+    match value {
+        serde_json::Value::Number(n) => n.as_f64(),
+        serde_json::Value::String(s) => {
+            if s.is_empty() {
+                None
+            } else {
+                s.parse::<f64>().ok()
+            }
+        }
+        _ => None,
+    }
 }
 
-/// 基础属性
-#[derive(Debug, Clone, Serialize, Deserialize)]
-pub struct BaseAttr {
-    #[serde(rename = "Str")]
-    pub str: Option<i64>,
-
-    #[serde(rename = "Dex")]
-    pub dex: Option<i64>,
-
-    #[serde(rename = "Mind")]
-    pub mind: Option<i64>,
-
-    #[serde(rename = "Con")]
-    pub con: Option<i64>,
-
-    #[serde(rename = "Hp")]
-    pub hp: Option<i64>,
-
-    #[serde(rename = "Mp")]
-    pub mp: Option<i64>,
-
-    #[serde(flatten)]
-    pub extra: HashMap<String, serde_json::Value>,
+/// 从serde_json::Value中提取字符串
+pub fn extract_string(value: &serde_json::Value) -> Option<String> {
+    match value {
+        serde_json::Value::String(s) => Some(s.clone()),
+        _ => None,
+    }
 }
 
-/// 永久加成
-#[derive(Debug, Clone, Serialize, Deserialize)]
-pub struct PermanentFightAttr {
-    #[serde(rename = "Str")]
-    pub str: Option<i64>,
-
-    #[serde(rename = "Dex")]
-    pub dex: Option<i64>,
-
-    #[serde(rename = "Mind")]
-    pub mind: Option<i64>,
-
-    #[serde(rename = "Con")]
-    pub con: Option<i64>,
-
-    #[serde(rename = "MaxHp")]
-    pub max_hp: Option<i64>,
-
-    #[serde(rename = "MaxMp")]
-    pub max_mp: Option<i64>,
-
-    #[serde(rename = "PhysicalAttack")]
-    pub physical_attack: Option<i64>,
-
-    #[serde(rename = "MagicAttack")]
-    pub magic_attack: Option<i64>,
-
-    #[serde(rename = "Defense")]
-    pub defense: Option<i64>,
-
-    #[serde(rename = "Speed")]
-    pub speed: Option<i64>,
-
-    #[serde(rename = "CriticalRatio")]
-    pub critical_ratio: Option<i64>,
-
-    #[serde(rename = "DodgeRatio")]
-    pub dodge_ratio: Option<i64>,
-
-    #[serde(flatten)]
-    pub extra: HashMap<String, serde_json::Value>,
+/// 从HashMap中获取字段值
+pub fn get_field<'a>(map: &'a serde_json::Map<String, serde_json::Value>, key: &str) -> Option<&'a serde_json::Value> {
+    map.get(key)
 }
 
-/// 战斗属性
-#[derive(Debug, Clone, Serialize, Deserialize)]
-pub struct FightAttr {
-    #[serde(rename = "Hp")]
-    pub hp: Option<i64>,
-
-    #[serde(rename = "MaxHp")]
-    pub max_hp: Option<i64>,
-
-    #[serde(rename = "Mp")]
-    pub mp: Option<i64>,
-
-    #[serde(rename = "MaxMp")]
-    pub max_mp: Option<i64>,
-
-    #[serde(rename = "Str")]
-    pub str: Option<i64>,
-
-    #[serde(rename = "Dex")]
-    pub dex: Option<i64>,
-
-    #[serde(rename = "Mind")]
-    pub mind: Option<i64>,
-
-    #[serde(rename = "Con")]
-    pub con: Option<i64>,
-
-    #[serde(rename = "PhysicalAttack")]
-    pub physical_attack: Option<i64>,
-
-    #[serde(rename = "MagicAttack")]
-    pub magic_attack: Option<i64>,
-
-    #[serde(rename = "Defense")]
-    pub defense: Option<i64>,
-
-    #[serde(rename = "Speed")]
-    pub speed: Option<i64>,
-
-    #[serde(rename = "Move")]
-    pub move_range: Option<i64>,
-
-    #[serde(rename = "CriticalRatio")]
-    pub critical_ratio: Option<i64>,
-
-    #[serde(rename = "DodgeRatio")]
-    pub dodge_ratio: Option<i64>,
-
-    #[serde(rename = "FireRes")]
-    pub fire_res: Option<i64>,
-
-    #[serde(rename = "WaterRes")]
-    pub water_res: Option<i64>,
-
-    #[serde(rename = "AirRes")]
-    pub air_res: Option<i64>,
-
-    #[serde(rename = "EarthRes")]
-    pub earth_res: Option<i64>,
-
-    #[serde(rename = "MindRes")]
-    pub mind_res: Option<i64>,
-
-    #[serde(flatten)]
-    pub extra: HashMap<String, serde_json::Value>,
+/// 从HashMap中获取i64值
+pub fn get_i64(map: &serde_json::Map<String, serde_json::Value>, key: &str) -> Option<i64> {
+    map.get(key).and_then(extract_i64)
 }
 
-/// 战场数据 (stage)
-#[derive(Debug, Clone, Serialize, Deserialize)]
-pub struct StageData {
-    /// 角色实体映射 (key -> 角色实体JSON字符串)
-    #[serde(rename = "charEntitiesMap")]
-    pub char_entities_map: Option<HashMap<String, serde_json::Value>>,
-
-    /// 其他字段
-    #[serde(flatten)]
-    pub extra: HashMap<String, serde_json::Value>,
+/// 从HashMap中获取f64值
+pub fn get_f64(map: &serde_json::Map<String, serde_json::Value>, key: &str) -> Option<f64> {
+    map.get(key).and_then(extract_f64)
 }
 
-/// 战场角色实体
-#[derive(Debug, Clone, Serialize, Deserialize)]
-pub struct CharEntity {
-    #[serde(rename = "PlayerId")]
-    pub player_id: Option<i64>,
+/// 从HashMap中获取字符串值
+pub fn get_string(map: &serde_json::Map<String, serde_json::Value>, key: &str) -> Option<String> {
+    map.get(key).and_then(extract_string)
+}
 
-    #[serde(rename = "Name")]
-    pub name: Option<String>,
-
-    #[serde(rename = "Level")]
-    pub level: Option<i64>,
-
-    #[serde(rename = "Exp")]
-    pub exp: Option<i64>,
-
-    #[serde(rename = "Camp")]
-    pub camp: Option<i64>,
-
-    #[serde(rename = "Hp")]
-    pub hp: Option<i64>,
-
-    #[serde(rename = "MaxHp")]
-    pub max_hp: Option<i64>,
-
-    #[serde(rename = "Mp")]
-    pub mp: Option<i64>,
-
-    #[serde(rename = "MaxMp")]
-    pub max_mp: Option<i64>,
-
-    #[serde(rename = "BaseAttr")]
-    pub base_attr: Option<BaseAttr>,
-
-    #[serde(rename = "FightAttr")]
-    pub fight_attr: Option<FightAttr>,
-
-    #[serde(rename = "EquipIDs")]
-    pub equip_ids: Option<HashMap<String, i64>>,
-
-    #[serde(rename = "ItemIDs")]
-    pub item_ids: Option<Vec<i64>>,
-
-    #[serde(rename = "NrlSkillID")]
-    pub nrl_skill_id: Option<i64>,
-
-    #[serde(rename = "MagicSkillIDs")]
-    pub magic_skill_ids: Option<Vec<i64>>,
-
-    #[serde(rename = "SpSkillIDs")]
-    pub sp_skill_ids: Option<Vec<i64>>,
-
-    #[serde(flatten)]
-    pub extra: HashMap<String, serde_json::Value>,
+/// 从HashMap中获取嵌套的Map
+pub fn get_map<'a>(map: &'a serde_json::Map<String, serde_json::Value>, key: &str) -> Option<&'a serde_json::Map<String, serde_json::Value>> {
+    map.get(key).and_then(|v| v.as_object())
 }
 
 /// 解析嵌套的JSON字符串
@@ -308,22 +107,57 @@ pub fn parse_nested_json(s: &str) -> anyhow::Result<serde_json::Value> {
     Ok(serde_json::from_str(s)?)
 }
 
+/// 游戏主数据 (gplay) - 使用serde_json::Value
+pub type GplayData = serde_json::Map<String, serde_json::Value>;
+
+/// 战场数据 (stage) - 使用serde_json::Value
+pub type StageData = serde_json::Map<String, serde_json::Value>;
+
 /// 解析gplay数据
 pub fn parse_gplay(gplay_str: &str) -> anyhow::Result<GplayData> {
-    Ok(serde_json::from_str(gplay_str)?)
+    let value: serde_json::Value = serde_json::from_str(gplay_str)?;
+    value.as_object()
+        .cloned()
+        .ok_or_else(|| anyhow::anyhow!("gplay不是有效的JSON对象"))
 }
 
 /// 解析stage数据
 pub fn parse_stage(stage_str: &str) -> anyhow::Result<StageData> {
-    Ok(serde_json::from_str(stage_str)?)
+    let value: serde_json::Value = serde_json::from_str(stage_str)?;
+    value.as_object()
+        .cloned()
+        .ok_or_else(|| anyhow::anyhow!("stage不是有效的JSON对象"))
 }
 
 /// 解析charEntitiesMap中的实体
-pub fn parse_entity(entity_value: &serde_json::Value) -> anyhow::Result<CharEntity> {
+pub fn parse_entity(entity_value: &serde_json::Value) -> anyhow::Result<serde_json::Map<String, serde_json::Value>> {
     match entity_value {
-        serde_json::Value::String(s) => Ok(serde_json::from_str(s)?),
-        other => Ok(serde_json::from_value(other.clone())?),
+        serde_json::Value::String(s) => {
+            let value: serde_json::Value = serde_json::from_str(s)?;
+            value.as_object()
+                .cloned()
+                .ok_or_else(|| anyhow::anyhow!("实体不是有效的JSON对象"))
+        }
+        serde_json::Value::Object(map) => Ok(map.clone()),
+        _ => anyhow::bail!("实体格式无效"),
     }
+}
+
+/// 设置i64值到Map
+pub fn set_i64(map: &mut serde_json::Map<String, serde_json::Value>, key: &str, value: i64) {
+    map.insert(key.to_string(), serde_json::Value::Number(value.into()));
+}
+
+/// 设置f64值到Map
+pub fn set_f64(map: &mut serde_json::Map<String, serde_json::Value>, key: &str, value: f64) {
+    if let Some(n) = serde_json::Number::from_f64(value) {
+        map.insert(key.to_string(), serde_json::Value::Number(n));
+    }
+}
+
+/// 设置字符串值到Map
+pub fn set_string(map: &mut serde_json::Map<String, serde_json::Value>, key: &str, value: String) {
+    map.insert(key.to_string(), serde_json::Value::String(value));
 }
 
 impl SaveData {

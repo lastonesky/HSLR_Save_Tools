@@ -33,6 +33,8 @@ fn main() -> anyhow::Result<()> {
             if let Err(e) = app.open_file(path) {
                 app.status_message = format!("✗ 加载失败: {}", e);
                 app.status_is_error = true;
+            } else {
+                app.build_edit_fields();
             }
         }
     }
@@ -66,22 +68,26 @@ fn run_app(
                 if key.kind == KeyEventKind::Press {
                     match key.code {
                         // 退出
-                        KeyCode::Char('q') | KeyCode::Char('Q') | KeyCode::Esc => {
-                            return Ok(());
+                        KeyCode::Char('q') | KeyCode::Char('Q') => {
+                            if !app.editing {
+                                return Ok(());
+                            }
                         }
 
-                        // 切换标签页
-                        KeyCode::Tab => {
+                        // 切换标签页 (非编辑模式)
+                        KeyCode::Tab if !app.editing => {
                             app.next_tab();
+                            app.build_edit_fields();
                         }
-                        KeyCode::BackTab => {
+                        KeyCode::BackTab if !app.editing => {
                             app.prev_tab();
+                            app.build_edit_fields();
                         }
-                        KeyCode::Char('1') => app.set_tab(0),
-                        KeyCode::Char('2') => app.set_tab(1),
-                        KeyCode::Char('3') => app.set_tab(2),
-                        KeyCode::Char('4') => app.set_tab(3),
-                        KeyCode::Char('5') => app.set_tab(4),
+                        KeyCode::Char('1') if !app.editing => { app.switch_tab(0); }
+                        KeyCode::Char('2') if !app.editing => { app.switch_tab(1); }
+                        KeyCode::Char('3') if !app.editing => { app.switch_tab(2); }
+                        KeyCode::Char('4') if !app.editing => { app.switch_tab(3); }
+                        KeyCode::Char('5') if !app.editing => { app.switch_tab(4); }
 
                         // 打开文件
                         KeyCode::Char('o') | KeyCode::Char('O') => {
@@ -136,9 +142,13 @@ fn run_app(
                             }
                         }
 
-                        // 角色切换 (上/下箭头)
+                        // 角色切换 (上/下箭头) - 仅在非编辑模式
                         KeyCode::Up => {
-                            if !app.char_list.is_empty() {
+                            if app.editing {
+                                // 编辑模式下不处理
+                            } else if !app.edit_fields.is_empty() {
+                                app.prev_field();
+                            } else if !app.char_list.is_empty() {
                                 let current_idx = app
                                     .char_list
                                     .iter()
@@ -153,7 +163,11 @@ fn run_app(
                             }
                         }
                         KeyCode::Down => {
-                            if !app.char_list.is_empty() {
+                            if app.editing {
+                                // 编辑模式下不处理
+                            } else if !app.edit_fields.is_empty() {
+                                app.next_field();
+                            } else if !app.char_list.is_empty() {
                                 let current_idx = app
                                     .char_list
                                     .iter()
@@ -162,6 +176,44 @@ fn run_app(
                                 let new_idx = (current_idx + 1) % app.char_list.len();
                                 app.select_char(app.char_list[new_idx].0);
                             }
+                        }
+
+                        // Enter: 开始编辑 / 确认编辑
+                        KeyCode::Enter => {
+                            if app.editing {
+                                app.confirm_edit();
+                            } else if !app.edit_fields.is_empty() {
+                                app.start_edit();
+                            }
+                        }
+
+                        // Esc: 取消编辑
+                        KeyCode::Esc => {
+                            if app.editing {
+                                app.cancel_edit();
+                            } else {
+                                return Ok(());
+                            }
+                        }
+
+                        // +/-: 快捷增减 (仅非编辑模式)
+                        KeyCode::Char('+') | KeyCode::Char('=') => {
+                            if !app.editing {
+                                app.increment_value(1);
+                            }
+                        }
+                        KeyCode::Char('-') | KeyCode::Char('_') => {
+                            if !app.editing {
+                                app.increment_value(-1);
+                            }
+                        }
+
+                        // 编辑模式下的数字输入
+                        KeyCode::Char(c) if app.editing && (c.is_ascii_digit() || c == '-') => {
+                            app.input_buffer.push(c);
+                        }
+                        KeyCode::Backspace if app.editing => {
+                            app.input_buffer.pop();
                         }
 
                         _ => {}
@@ -191,6 +243,8 @@ fn open_file_dialog(app: &mut editor::EditorApp) {
         if let Err(e) = app.open_file(path) {
             app.status_message = format!("✗ 加载失败: {}", e);
             app.status_is_error = true;
+        } else {
+            app.build_edit_fields();
         }
     }
 }

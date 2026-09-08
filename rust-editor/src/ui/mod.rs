@@ -49,7 +49,7 @@ pub fn draw(f: &mut Frame, app: &EditorApp) {
     draw_status_bar(f, app, chunks[2]);
 
     // 绘制快捷键提示
-    draw_help_bar(f, chunks[3]);
+    draw_help_bar(f, app, chunks[3]);
 }
 
 /// 绘制标签页
@@ -94,8 +94,14 @@ fn draw_status_bar(f: &mut Frame, app: &EditorApp, area: Rect) {
 }
 
 /// 绘制快捷键提示
-fn draw_help_bar(f: &mut Frame, area: Rect) {
-    let help_text = "Tab/Shift+Tab: 切换标签页 | F2: 全队满属性 | F3: 保存 | F5: 刷新 | Q: 退出";
+fn draw_help_bar(f: &mut Frame, app: &EditorApp, area: Rect) {
+    let help_text = if app.editing {
+        "输入数值后 Enter: 确认 | Esc: 取消"
+    } else if !app.edit_fields.is_empty() {
+        "↑↓: 选择字段 | Enter: 编辑 | +/-: 快捷增减 | Tab: 切换标签 | Ctrl+S: 保存 | Q: 退出"
+    } else {
+        "Tab: 切换标签 | F2: 全队满属性 | Ctrl+S: 保存 | Q: 退出"
+    };
     let help = Paragraph::new(help_text)
         .style(Style::default().fg(Color::DarkGray))
         .block(Block::default().borders(Borders::ALL).title("快捷键"));
