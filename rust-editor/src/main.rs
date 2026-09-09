@@ -1,3 +1,4 @@
+// 幻世录重制版存档编辑器 - Rust TUI版本
 mod crypto;
 mod editor;
 mod save;
@@ -208,8 +209,8 @@ fn run_app(
                             }
                         }
 
-                        // 编辑模式下的数字输入
-                        KeyCode::Char(c) if app.editing && (c.is_ascii_digit() || c == '-') => {
+                        // 编辑模式下的数字和符号输入
+                        KeyCode::Char(c) if app.editing && (c.is_ascii_digit() || c == '-' || (c == ',' && app.items_edit_mode)) => {
                             app.input_buffer.push(c);
                         }
                         KeyCode::Backspace if app.editing => {

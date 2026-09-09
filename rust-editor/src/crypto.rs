@@ -22,9 +22,19 @@ const MAGIC: &[u8; 4] = b"ECC:";
 ///
 /// 文件格式: [ECC: (4字节)] + AES-256-CBC(GZip(JSON))
 pub fn decrypt_file(data: &[u8]) -> anyhow::Result<String> {
+    // 检查文件大小
+    if data.len() < 4 {
+        anyhow::bail!("文件太小，不是有效的HSLR存档文件");
+    }
+
     // 检查文件头
-    if data.len() < 4 || &data[..4] != MAGIC {
+    if &data[..4] != MAGIC {
         anyhow::bail!("不是有效的HSLR存档文件 (缺少ECC:头标识)");
+    }
+
+    // 检查密文长度 (至少需要一个AES块)
+    if data.len() < 20 {
+        anyhow::bail!("文件数据不完整");
     }
 
     // 提取密文
@@ -35,12 +45,18 @@ pub fn decrypt_file(data: &[u8]) -> anyhow::Result<String> {
     let mut buf = ciphertext.to_vec();
     let plaintext = cipher
         .decrypt_padded_mut::<Pkcs7>(&mut buf)
-        .map_err(|e| anyhow::anyhow!("AES解密失败: {:?}", e))?;
+        .map_err(|_| anyhow::anyhow!("AES解密失败: 文件可能已损坏或不是有效的存档文件"))?;
 
     // GZip 解压
     let mut decoder = GzDecoder::new(plaintext);
     let mut json_str = String::new();
-    decoder.read_to_string(&mut json_str)?;
+    decoder.read_to_string(&mut json_str)
+        .map_err(|_| anyhow::anyhow!("GZip解压失败: 文件可能已损坏"))?;
+
+    // 验证是否为有效JSON
+    if json_str.trim().is_empty() {
+        anyhow::bail!("解密后数据为空");
+    }
 
     Ok(json_str)
 }
