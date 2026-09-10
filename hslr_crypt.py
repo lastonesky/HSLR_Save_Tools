@@ -23,11 +23,24 @@ def encrypt_data(json_str):
     cipher = AES.new(KEY, AES.MODE_CBC, IV)
     return MAGIC + cipher.encrypt(pad(compressed, AES.block_size))
 
+def get_default_save_dir():
+    """获取幻世录重制版默认存档目录（优先正式版，回退 demo）"""
+    user_profile = os.environ.get('USERPROFILE', '')
+    if user_profile:
+        base = os.path.join(user_profile, 'AppData', 'LocalLow', 'UserJoy', 'HSLR', 'Save')
+        # 正式版: Save/sav ; demo 版: Save/Save_Demo/sav
+        for sub in ('sav', os.path.join('Save_Demo', 'sav')):
+            d = os.path.join(base, sub)
+            if os.path.isdir(d):
+                return d
+    return None
+
 def main():
     if len(sys.argv) < 2:
         print("HSLR Save Tool")
-        print("  decrypt <file.sav>          解密存档")
-        print("  decrypt-all                  解密当前目录所有存档")
+        print("  decrypt <file.sav>            解密存档并打印 JSON")
+        print("  decrypt-all [目录]            解密目录下所有 gamedata_*.sav 为 .json")
+        print("                                （目录省略时用游戏存档目录，正式版优先）")
         print("  encrypt <file.json> <out.sav> 加密为存档")
         return
 
@@ -39,30 +52,52 @@ def main():
         print(json.dumps(obj, ensure_ascii=False, indent=2))
 
     elif cmd == 'decrypt-all':
-        for f in sorted(os.listdir('.')):
-            if f.endswith('.sav') and f.startswith('gamedata_'):
-                try:
-                    result = decrypt_file(f)
-                    obj = json.loads(result)
-                    gplay = json.loads(obj.get('gplay', '{}')) if isinstance(obj.get('gplay'), str) else obj.get('gplay', {})
-                    chars = gplay.get('GDCharRecordInfo', {})
-                    print(f"\n{'='*60}")
-                    print(f" {f}")
-                    print(f"{'='*60}")
-                    print(f"  Level: {gplay.get('Level','?')}  Gold: {gplay.get('Gold','?')}  StageId: {gplay.get('StageId','?')}")
-                    print(f"  PlayTime: {gplay.get('PlayTime','?')}s  Chapter: {gplay.get('Version','?')}")
-                    for pid, ch in chars.items():
-                        base = ch.get('BaseAttr', {})
-                        fight = ch.get('FightAttr', {})
-                        print(f"  Char {pid}: Lv{ch.get('Level','?')} HP={fight.get('Hp','?')}/{fight.get('MaxHp','?')} "
-                              f"MP={fight.get('Mp','?')}/{fight.get('MaxMp','?')} "
-                              f"Str={base.get('Str','?')} Def={base.get('Defense','?')}")
-                    outname = f.replace('.sav', '.json')
-                    with open(outname, 'w', encoding='utf-8') as out:
-                        json.dump(obj, out, ensure_ascii=False, indent=2)
-                    print(f"  -> Saved to {outname}")
-                except Exception as e:
-                    print(f"\n{f}: ERROR - {e}")
+        target_dir = sys.argv[2] if len(sys.argv) >= 3 else (get_default_save_dir() or '.')
+        if not os.path.isdir(target_dir):
+            print(f"目录不存在: {target_dir}")
+            return
+        files = sorted(f for f in os.listdir(target_dir)
+                       if f.endswith('.sav') and f.startswith('gamedata_'))
+        if not files:
+            print(f"未在 {target_dir} 找到 gamedata_*.sav")
+            return
+        print(f"扫描目录: {target_dir}")
+        for f in files:
+            path = os.path.join(target_dir, f)
+            try:
+                result = decrypt_file(path)
+                obj = json.loads(result)
+                gplay = obj.get('gplay') or '{}'
+                gplay = json.loads(gplay) if isinstance(gplay, str) else gplay
+                if not isinstance(gplay, dict):
+                    gplay = {}
+                # 正式版在非战斗状态保存的存档中 stage 为 null（没有战场数据）
+                stage = obj.get('stage')
+                stage = json.loads(stage) if isinstance(stage, str) else stage
+                chars = gplay.get('GDCharRecordInfo', {})
+                print(f"\n{'='*60}")
+                print(f" {f}")
+                print(f"{'='*60}")
+                print(f"  Gold: {gplay.get('Gold','?')}  StageId: {gplay.get('StageId','?')}  IsBattling: {gplay.get('IsBattling','?')}")
+                print(f"  PlayTime: {gplay.get('PlayTime','?')}s  Chapter: {gplay.get('Version','?')}")
+                n_ent = len(stage.get('charEntitiesMap', {})) if isinstance(stage, dict) else 0
+                print(f"  战场数据: {'有 (实体 %d)' % n_ent if isinstance(stage, dict) else '无 (非战斗状态保存, stage=null)'}")
+                for pid, ch in chars.items():
+                    if not isinstance(ch, dict):
+                        continue
+                    base = ch.get('BaseAttr', {})
+                    fight = ch.get('FightAttr', {})
+                    perm = ch.get('PermanentFightAttr', {})
+                    print(f"  Char {pid}: Lv{ch.get('Level','?')} HP={fight.get('Hp','?')}/{fight.get('MaxHp','?')} "
+                          f"MP={fight.get('Mp','?')}/{fight.get('MaxMp','?')} "
+                          f"Str={base.get('Str','?')} Def={base.get('Defense','?')} "
+                          f"(永久加成 Str={perm.get('Str','?')} 物攻={perm.get('PhysicalAttack','?')})")
+                outname = os.path.join(target_dir, f.replace('.sav', '.json'))
+                with open(outname, 'w', encoding='utf-8') as out:
+                    json.dump(obj, out, ensure_ascii=False, indent=2)
+                print(f"  -> Saved to {outname}")
+            except Exception as e:
+                print(f"\n{f}: ERROR - {e}")
 
     elif cmd == 'encrypt' and len(sys.argv) >= 4:
         raw = open(sys.argv[2], 'rb').read()

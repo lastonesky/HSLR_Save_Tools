@@ -129,19 +129,25 @@ py -3.11 hslr_editor.py
 
 ## 📂 存档位置
 
-默认存档路径（自动检测）：
+默认存档路径（自动检测，正式版优先，找不到时回退 demo 版）：
 
 ```
-%USERPROFILE%\AppData\LocalLow\UserJoy\HSLR\Save\Save_Demo\sav\
+正式版:  %USERPROFILE%\AppData\LocalLow\UserJoy\HSLR\Save\sav\
+demo 版: %USERPROFILE%\AppData\LocalLow\UserJoy\HSLR\Save\Save_Demo\sav\
 ├── gamedata_0.sav ~ gamedata_N.sav   # 玩家手动存档
 ├── restart_0.sav ~ restart_N.sav     # 自动/重启存档
 └── *.jpg                              # 存档截图
 ```
 
+> ⚠ 正式版在**非战斗状态**保存的存档中，顶层 `stage` 为 `null`（不含战场数据）。
+> 这类存档的「战场属性」页填写无效，请改用「存档属性」页或底部「全队满属性(持久)」按钮做持久修改。
+
 其他相关文件：
 
 ```
-%USERPROFILE%\AppData\LocalLow\UserJoy\HSLR\Save\Save_Demo\
+%USERPROFILE%\AppData\LocalLow\UserJoy\HSLR\Save\
+├── sav\                               # 正式版存档目录
+├── Save_Demo\sav\                     # demo 版存档目录
 ├── undo_0/ ~ undo_N/                  # 撤销快照链
 ├── playstatis.db                      # SQLite 统计数据库（未加密）
 ├── savinfo.txt                        # 存档索引（加密）
