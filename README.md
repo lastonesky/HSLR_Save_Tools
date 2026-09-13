@@ -2,134 +2,72 @@
 
 > 🔧 幻世录重制版 (HSLR) 存档解密/加密/编辑工具集
 
-## 📋 功能特性
+## 🎮 游戏概述
 
-- **存档解密/加密** - 解密 `.sav` 文件为 JSON 格式，或将 JSON 重新加密为存档
-- **GUI 图形编辑器** - 可视化修改角色属性、装备、技能等
-- **批量处理** - 一键解密目录下所有存档
-- **密钥提取** - Frida 脚本用于运行时提取加密密钥
+幻世录重制版是一款策略RPG游戏，包含多结局路线、丰富的道具装备系统和复杂的角色成长机制。
+
+### 核心特色
+- **多结局系统** - 3个主要结局 + 1个早期结局
+- **职业转职** - 10+种职业路线，每种有独特技能
+- **装备系统** - 267种装备，6个装备槽位
+- **策略战斗** - 回合制战棋，地形与属性克制
 
 ## 🚀 快速开始
 
-### 环境要求
+### 一键配置（推荐）
 
-- Python 3.8+（推荐 Python 3.11 或更高版本）
-- 操作系统：Windows 10/11
+1. **双击 `setup.bat`** - 自动检查并安装依赖
+2. **双击 `run_editor.bat`** - 启动图形编辑器
 
-### 第一步：确认 Python 版本
-
-打开命令提示符或 PowerShell，运行：
+### 手动配置
 
 ```bash
-python --version
-```
-
-如果显示 `Python 3.8.x` 或更高版本，可以继续。如果提示找不到命令，请先安装 Python：
-- 官网下载：https://www.python.org/downloads/
-- 安装时勾选 **"Add Python to PATH"**
-
-> 💡 **提示**：如果系统中有多个 Python 版本，请确保使用正确的版本。可以尝试 `python3` 命令。
-
-### 第二步：安装依赖
-
-**方式一：使用 requirements.txt（推荐）**
-
-```bash
-# 克隆或下载项目后，在项目目录下运行
-pip install -r requirements.txt
-```
-
-**方式二：手动安装**
-
-```bash
+# 安装依赖
 pip install pycryptodome
-```
 
-**方式三：如果 pip 命令不可用**
-
-```bash
-python -m pip install pycryptodome
-```
-
-### 第三步：验证安装
-
-```bash
-python -c "from Crypto.Cipher import AES; print('依赖安装成功！')"
-```
-
-如果输出 `依赖安装成功！` 表示环境配置正确。
-
-### 第四步：运行工具
-
-```bash
-# 启动 GUI 编辑器
+# 启动编辑器
 python hslr_editor.py
+```
 
-# 或者使用命令行工具
+### 工具命令
+
+```bash
+# 解密存档为JSON
 python hslr_crypt.py decrypt gamedata_0.sav
+
+# 加密JSON为存档
+python hslr_crypt.py encrypt gamedata_0.json gamedata_0.sav
+
+# 解密所有存档
+python hslr_crypt.py decrypt-all
 ```
 
-### 常见问题
+## 🎯 结局系统
 
-**Q: 运行时提示 `ModuleNotFoundError: No module named 'Crypto'`**
+游戏共有 **3 个主要结局** + **1 个早期特殊结局**：
 
-A: 依赖未安装或安装到了错误的 Python 环境。尝试：
-```bash
-python -m pip install pycryptodome
-```
+| 结局 | 名称 | 触发任务 | 关键条件 |
+|------|------|---------|----------|
+| 🔹 普通结局 | 平衡/崩坏 | 任务 45 | 走主线路径 |
+| 🔹 IF 结局 | 黎明 | 任务 47 | 翼族路线 A + IF_END=6 |
+| 🔹 DE 结局 | 魔王 | 任务 47 | 翼族路线 B + IF_END=6 |
+| 🔸 早期结局 | 流亡 | 任务 52 | 第 2 章后特殊触发 |
 
-**Q: 运行时提示 `ModuleNotFoundError: No module named 'tkinter'`**
+### 关键分支点
+- **任务 18**：三个分支（任务 19/20/21）
+- **任务 45**：三个分支（任务 46/48/49）← **决定结局的关键点**
+- **任务 20000**：变量 `IF_END=6` 决定是否进入 IF/DE 结局
 
-A: tkinter 是 Python 标准库，通常随 Python 一起安装。如果缺失，可能需要重新安装 Python 并勾选 "tcl/tk and IDLE" 选项。
+### 解锁回忆录
+- 普通结局：#24（平衡）、#25（崩坏）、#27（流亡）
+- IF 结局：#24、#25、#26（黎明）、#31（坠翼）
+- DE 结局：#24、#25、#26、#30（魔王）
 
-**Q: 系统中有多个 Python 版本怎么办？**
+> 📖 详见 [HSLR_Endings.md](./HSLR_Endings.md)
 
-A: 使用完整路径指定 Python：
-```bash
-# 查看 Python 安装位置
-where python
+## 📦 存档系统
 
-# 使用特定版本（示例）
-C:\Python311\python.exe hslr_editor.py
-```
-
-或者使用 `py` 启动器（Windows）：
-```bash
-py -3.11 hslr_editor.py
-```
-
-## 📁 工具说明
-
-| 文件 | 说明 |
-|------|------|
-| `hslr_crypt.py` | 命令行解密/加密工具 |
-| `hslr_editor.py` | GUI 图形编辑器 (tkinter) |
-| `extract_keys.js` | Frida 运行时密钥提取脚本 |
-| `HSLR_SaveAnalysis.md` | 存档数据结构详细分析文档 |
-
-## 🎮 GUI 编辑器功能
-
-### 主界面
-
-运行 `python hslr_editor.py` 启动图形编辑器，支持：
-
-1. **基础信息** - 修改等级、经验值
-2. **存档属性 (GDCharRecordInfo)** - 修改基础属性和战斗属性
-3. **战场属性 (charEntitiesMap)** - 修改当前战场的角色数据
-4. **装备/道具/技能** - 修改装备槽、背包道具、技能配置
-5. **全角色一览** - 查看所有战场角色信息
-
-### 快捷操作
-
-| 按钮 | 功能 |
-|------|------|
-| ❤ 一键满血满蓝 | 将 HP/MP 恢复到最大值 |
-| ⚡ 全属性MAX | 所有属性设为最大值 (999) |
-| 🎯 Lv99 + 满经验 | 等级设为 99，经验设为 99999 |
-
-## 📂 存档位置
-
-默认存档路径（自动检测，正式版优先，找不到时回退 demo 版）：
+### 存档位置
 
 ```
 正式版:  %USERPROFILE%\AppData\LocalLow\UserJoy\HSLR\Save\sav\
@@ -139,47 +77,7 @@ demo 版: %USERPROFILE%\AppData\LocalLow\UserJoy\HSLR\Save\Save_Demo\sav\
 └── *.jpg                              # 存档截图
 ```
 
-> ⚠ 正式版在**非战斗状态**保存的存档中，顶层 `stage` 为 `null`（不含战场数据）。
-> 这类存档的「战场属性」页填写无效，请改用「存档属性」页或底部「全队满属性(持久)」按钮做持久修改。
-
-其他相关文件：
-
-```
-%USERPROFILE%\AppData\LocalLow\UserJoy\HSLR\Save\
-├── sav\                               # 正式版存档目录
-├── Save_Demo\sav\                     # demo 版存档目录
-├── undo_0/ ~ undo_N/                  # 撤销快照链
-├── playstatis.db                      # SQLite 统计数据库（未加密）
-├── savinfo.txt                        # 存档索引（加密）
-├── MemoryData.sav                     # 记忆数据（加密）
-└── settingData.sav                    # 设置数据（加密）
-```
-
-## 🔐 加密方案
-
-| 项目 | 值 |
-|------|-----|
-| 算法 | AES-256-CBC |
-| Key | `HSLR2025USJOY!@#AES256!@#FORFUN@` (32字节) |
-| IV | `hslrv20250507001` (16字节) |
-| 压缩 | GZip |
-| 填充 | PKCS7 |
-| 文件头 | `ECC:` (4字节) |
-
-### 文件格式
-
-```
-┌──────────────────────────────────────────┐
-│ "ECC:"  (4字节)                           │
-├──────────────────────────────────────────┤
-│ AES-256-CBC 密文                          │
-│ = GZip( JSON(游戏数据) )                  │
-└──────────────────────────────────────────┘
-```
-
-## 📊 数据结构
-
-### 存档顶层结构
+### 存档结构
 
 ```json
 {
@@ -194,58 +92,104 @@ demo 版: %USERPROFILE%\AppData\LocalLow\UserJoy\HSLR\Save\Save_Demo\sav\
 }
 ```
 
-### 角色存档记录 (GDCharRecordInfo)
+### 加密方案
 
-```json
-{
-    "PlayerId": 100,
-    "Level": 3,
-    "Exp": 109,
-    "BaseAttr": {
-        "Str": 1,    // 力量
-        "Dex": 1,    // 敏捷
-        "Mind": 2,   // 智力
-        "Con": 6,    // 体质
-        "Hp": 43,    // 基础HP
-        "Mp": 11     // 基础MP
-    },
-    "FightAttr": {
-        "Hp": 30,               // 当前HP
-        "MaxHp": 43,            // 最大HP
-        "PhysicalAttack": 60,   // 物攻
-        "MagicAttack": 20,      // 魔攻
-        "Defense": 52,          // 防御
-        "Speed": 0,             // 速度
-        "Move": 0,              // 移动力
-        "CriticalRatio": 0,     // 暴击率
-        "DodgeRatio": 0         // 闪避率
-    },
-    "EquipIDs": {
-        "0": 123,    // 武器
-        "1": 97,     // 防具
-        "2": 143,    // 饰品1
-        "3": 2,      // 头盔
-        "4": 267     // 饰品2
-    },
-    "ItemIDs": [212, 217],
-    "MagicSkillIDs": [],
-    "SpSkillIDs": [25]
-}
-```
+| 项目 | 值 |
+|------|-----|
+| 算法 | AES-256-CBC |
+| Key | `HSLR2025USJOY!@#AES256!@#FORFUN@` |
+| IV | `hslrv20250507001` |
+| 压缩 | GZip |
+| 文件头 | `ECC:` (4字节) |
 
-### 装备槽位说明
+## ⚔️ 道具装备系统
+
+### 装备槽位
 
 | 槽位 | 名称 | 说明 |
 |------|------|------|
-| 0 | 武器 | 主武器 |
-| 1 | 防具 | 铠甲 |
-| 2 | 饰品1 | 饰品槽1 |
-| 3 | 头盔 | 头部装备 |
-| 4 | 饰品2 | 饰品槽2 |
+| 0 | 头盔 | 头部装备 |
+| 1 | 铠甲 | 身体防具 |
+| 2 | 鞋子 | 脚部装备 |
+| 3 | 武器 | 主武器 |
+| 4 | 饰品1 | 饰品槽1 |
+| 5 | 饰品2 | 饰品槽2 |
 
-## 🛠️ 高级用法
+### 装备类型
 
-### Python 脚本直接修改
+| 类型 | 数量 | 说明 |
+|------|------|------|
+| 剑 | 30+ | 物理攻击为主 |
+| 弓 | 20+ | 远程物理攻击 |
+| 杖 | 15+ | 魔法攻击为主 |
+| 匕首 | 10+ | 高暴击，低伤害 |
+| 铠甲 | 40+ | 提供防御 |
+| 头盔 | 25+ | 提供防御和属性 |
+| 鞋子 | 20+ | 提供速度和移动力 |
+| 饰品 | 100+ | 各种特殊效果 |
+
+### 属性系统
+
+| 属性 | 说明 | 影响 |
+|------|------|------|
+| Str | 力量 | 物理攻击力 |
+| Dex | 敏捷 | 命中率、回避率 |
+| Mind | 智力 | 魔法攻击力 |
+| Con | 体质 | HP、防御力 |
+| Hp | 生命值 | 角色生存 |
+| Mp | 魔法值 | 技能消耗 |
+
+> 📖 详见 [data/README.md](./data/README.md)
+
+## 📈 升级系统
+
+### 属性计算
+
+游戏属性是分层计算的：
+```
+最终属性 = 基础属性 + 永久加成 + 装备加成 + 状态加成 + 难度修正
+```
+
+### 正确修改方式
+
+```python
+# ❌ 错误：改FightAttr（会被覆盖）
+record['FightAttr']['Str'] = 9999
+
+# ✅ 正确：改BaseAttr（基础属性点，永久生效）
+record['BaseAttr']['Str'] = 100
+
+# ✅ 也可以改PermanentFightAttr（永久加成）
+record['PermanentFightAttr']['Str'] = 500
+```
+
+### 职业限制
+
+每个职业有属性上限（Clamp），超过后无法继续加点。
+
+> 📖 详见 [ANALYSIS_LevelUp.md](./ANALYSIS_LevelUp.md)
+
+## 🛠️ 工具功能
+
+### GUI编辑器
+
+运行 `python hslr_editor.py` 启动图形编辑器：
+
+1. **基础信息** - 修改等级、经验值
+2. **存档属性** - 修改基础属性和战斗属性
+3. **战场属性** - 修改当前战场的角色数据
+4. **装备/道具/技能** - 修改装备槽、背包道具、技能配置
+5. **全角色一览** - 查看所有战场角色信息
+
+### 快捷操作
+
+| 按钮 | 功能 |
+|------|------|
+| ❤ 一键满血满蓝 | 将 HP/MP 恢复到最大值 |
+| ⚡ 全属性MAX | 所有属性设为最大值 (999) |
+| 🎯 Lv99 + 满经验 | 等级设为 99，经验设为 99999 |
+
+### 脚本修改
 
 ```python
 import json, gzip
@@ -255,36 +199,20 @@ from Crypto.Util.Padding import unpad, pad
 KEY = bytes.fromhex('48534c523230323555534a4f59214023414553323536214023464f5246554e40')
 IV  = bytes.fromhex('68736c72763230323530353037303031')
 
-# 1. 解密
+# 解密
 with open('gamedata_0.sav', 'rb') as f:
     data = f.read()
-ct = data[4:]  # 跳过 "ECC:"
+ct = data[4:]
 cipher = AES.new(KEY, AES.MODE_CBC, IV)
 pt = unpad(cipher.decrypt(ct), 16)
 save = json.loads(gzip.decompress(pt).decode('utf-8'))
 
-# 2. 修改
+# 修改
 gplay = json.loads(save['gplay'])
-stage = json.loads(save['stage'])
+gplay['GDCharRecordInfo']['100']['BaseAttr']['Hp'] = 9999
 
-# 修改存档记录中的HP
-record = gplay['GDCharRecordInfo']['100']
-record['BaseAttr']['Hp'] = 9999
-record['FightAttr']['MaxHp'] = 9999
-record['FightAttr']['Hp'] = 9999
-
-# 修改战场实体中的HP
-cem = stage['charEntitiesMap']
-for key, val in cem.items():
-    v = json.loads(val) if isinstance(val, str) else val
-    if v.get('PlayerId') == 100 and v.get('Camp') == 2:
-        v['Hp'] = 9999
-        v['MaxHp'] = 9999
-        cem[key] = v
-
-# 3. 重新加密保存
+# 重新加密
 save['gplay'] = json.dumps(gplay, ensure_ascii=False)
-save['stage'] = json.dumps(stage, ensure_ascii=False)
 raw = json.dumps(save, ensure_ascii=False).encode('utf-8')
 compressed = gzip.compress(raw)
 cipher = AES.new(KEY, AES.MODE_CBC, IV)
@@ -293,26 +221,14 @@ with open('gamedata_0.sav', 'wb') as f:
     f.write(b'ECC:' + ct)
 ```
 
-### 使用 Frida 提取密钥
+## 📚 参考文档
 
-```bash
-# 附加到游戏进程
-frida -p <PID> -l extract_keys.js
-
-# 或者 spawn 方式
-frida -f HSLR.exe -l extract_keys.js --no-pause
-```
-
-然后在游戏中进行存档/读档操作，控制台将输出提取到的 Key 和 IV。
-
-## 📖 参考文档
-
-- [HSLR_SaveAnalysis.md](./HSLR_SaveAnalysis.md) - 完整的存档数据结构分析文档，包含：
-  - 加密方案详解
-  - 全部数据结构说明
-  - 职业系统
-  - 道具/装备/技能 ID 列表
-  - 战斗属性字段说明
+| 文档 | 内容 |
+|------|------|
+| [HSLR_Endings.md](./HSLR_Endings.md) | 结局分析：所有结局详情、任务路径、解锁条件 |
+| [HSLR_SaveAnalysis.md](./HSLR_SaveAnalysis.md) | 存档分析：数据结构、加密方案、字段说明 |
+| [ANALYSIS_LevelUp.md](./ANALYSIS_LevelUp.md) | 升级系统：属性计算、职业限制、修改方法 |
+| [data/README.md](./data/README.md) | 道具数据：装备属性、物品列表、枚举对照 |
 
 ## ⚠️ 注意事项
 
@@ -320,8 +236,14 @@ frida -f HSLR.exe -l extract_keys.js --no-pause
 2. **游戏版本** - 工具基于特定版本开发，游戏更新后可能需要调整
 3. **修改风险** - 过度修改可能导致游戏崩溃或存档损坏
 4. **Steam 云存档** - 修改后注意 Steam 云同步可能覆盖修改
+5. **属性修改** - 修改 `BaseAttr` 而不是 `FightAttr` 才能持久生效
 
 ## 📝 更新日志
+
+### v1.1.0 (2026-09-13)
+- 新增结局分析文档
+- 添加一键配置脚本
+- 简化使用流程
 
 ### v1.0.0 (2025-06-05)
 - 初始版本发布
