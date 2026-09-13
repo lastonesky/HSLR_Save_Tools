@@ -84,11 +84,17 @@ def item_name(iid):
     return it['name'] if it else ''
 
 def item_label(iid):
-    """下拉框/列表里显示的文本：'ID 名称'"""
+    """下拉框/列表里显示的文本：'ID 名称 [类型/子类型]'"""
     if iid is None:
         return ''
-    n = item_name(iid)
-    return f"{iid} {n}" if n else str(iid)
+    it = ITEM_TABLE.get(iid)
+    if not it:
+        return str(iid)
+    name = it['name'] or ''
+    extra = '/'.join(x for x in (it['type'], it['subtype']) if x)
+    if name and extra:
+        return f"{iid} {name} [{extra}]"
+    return f"{iid} {name}" if name else str(iid)
 
 def item_title(iid):
     """物品一行摘要：ID 名称（类型/子类）"""
@@ -104,6 +110,25 @@ def parse_item_id(text):
         return None
     m = re.match(r'\s*(\d+)', str(text))
     return int(m.group(1)) if m else None
+
+def item_price(iid):
+    """物品买价（int）；查不到或不是数字时按 0 处理"""
+    it = ITEM_TABLE.get(iid)
+    if not it:
+        return 0
+    try:
+        return int(str(it.get('price') or '0').strip())
+    except ValueError:
+        return 0
+
+def item_sort_key(iid):
+    """物品页候选下拉框的排序键：先按类别（类型/子类型）分组，其次买价升序，最后 ID 升序"""
+    it = ITEM_TABLE.get(iid) or {}
+    return (it.get('type') or '', it.get('subtype') or '', item_price(iid), iid)
+
+def item_price_sort_key(iid):
+    """装备页候选下拉框的排序键：按买价升序，同价按 ID 升序"""
+    return (item_price(iid), iid)
 
 # ============================================================
 # GUI
@@ -430,7 +455,7 @@ class HSLEditor:
         """按槽位填充下拉候选（部位过滤）"""
         for slot, cb in self.equip_boxes.items():
             vals = ['(空)']
-            for iid in sorted(ITEM_TABLE):
+            for iid in sorted(ITEM_TABLE, key=item_price_sort_key):
                 if ITEM_TABLE[iid].get('slot') == slot:
                     vals.append(item_label(iid))
             cb['values'] = vals
@@ -489,13 +514,20 @@ class HSLEditor:
         self.bag_tree.column('类型', width=70)
         self.bag_tree.grid(row=2, column=0, columnspan=4, sticky='w')
         self.bag_tree.bind('<Double-1>', lambda e: self._bag_edit_qty())
+        # 在列表里点选一行时，下方「物品说明」跟着显示该物品
+        self.bag_tree.bind('<<TreeviewSelect>>', lambda e: self._on_item_tree_select(self.bag_tree))
 
         bag_add = ttk.Frame(parent)
         bag_add.grid(row=3, column=0, columnspan=4, sticky='w', pady=4)
         self.bag_add_var = tk.StringVar()
         self.bag_add_box = ttk.Combobox(bag_add, textvariable=self.bag_add_var, width=44,
-                                        values=[item_label(i) for i in sorted(ITEM_TABLE)])
+                                        values=[item_label(i) for i in sorted(ITEM_TABLE, key=item_sort_key)])
         self.bag_add_box.pack(side='left')
+        # 选中 / 手输物品 ID 时刷新下方「物品说明」
+        self.bag_add_box.bind('<<ComboboxSelected>>', lambda e: self._update_item_info(self.bag_add_var))
+        self.bag_add_box.bind('<KeyRelease>', lambda e: self._update_item_info(self.bag_add_var))
+        self.bag_add_box.bind('<FocusOut>', lambda e: self._update_item_info(self.bag_add_var))
+        self._bind_combo_step(self.bag_add_box)
         self.bag_add_qty = tk.StringVar(value='1')
         ttk.Spinbox(bag_add, from_=1, to=999, textvariable=self.bag_add_qty, width=5).pack(side='left', padx=6)
         ttk.Button(bag_add, text="➕ 添加到背包", command=self._bag_add).pack(side='left', padx=4)
@@ -513,13 +545,18 @@ class HSLEditor:
         self.storage_tree.column('类型', width=70)
         self.storage_tree.grid(row=6, column=0, columnspan=4, sticky='w')
         self.storage_tree.bind('<Double-1>', lambda e: self._storage_edit_qty())
+        self.storage_tree.bind('<<TreeviewSelect>>', lambda e: self._on_item_tree_select(self.storage_tree))
 
         st_add = ttk.Frame(parent)
         st_add.grid(row=7, column=0, columnspan=4, sticky='w', pady=4)
         self.st_add_var = tk.StringVar()
         self.st_add_box = ttk.Combobox(st_add, textvariable=self.st_add_var, width=44,
-                                       values=[item_label(i) for i in sorted(ITEM_TABLE)])
+                                       values=[item_label(i) for i in sorted(ITEM_TABLE, key=item_sort_key)])
         self.st_add_box.pack(side='left')
+        self.st_add_box.bind('<<ComboboxSelected>>', lambda e: self._update_item_info(self.st_add_var))
+        self.st_add_box.bind('<KeyRelease>', lambda e: self._update_item_info(self.st_add_var))
+        self.st_add_box.bind('<FocusOut>', lambda e: self._update_item_info(self.st_add_var))
+        self._bind_combo_step(self.st_add_box)
         self.st_add_qty = tk.StringVar(value='1')
         ttk.Spinbox(st_add, from_=1, to=999, textvariable=self.st_add_qty, width=5).pack(side='left', padx=6)
         ttk.Button(st_add, text="➕ 添加到仓库", command=self._storage_add).pack(side='left', padx=4)
@@ -530,6 +567,80 @@ class HSLEditor:
                       text=("⚠ 没找到物品表 data/items.csv，下拉框是空的；仍然可以直接手输物品 ID。\n"
                             "把仓库里的 data/items.csv 和编辑器放在一起就能看到名称与分类。")
                       ).grid(row=8, column=0, columnspan=4, sticky='w', pady=(8, 0))
+
+        # 物品说明：下拉框选物品（或手输 ID）、在列表里点选一行，都会刷新这里
+        ttk.Label(parent, text="物品说明", font=('', 10, 'bold')
+                  ).grid(row=9, column=0, columnspan=4, sticky='w', pady=(10, 2))
+        self.item_info = tk.Text(parent, width=84, height=6, wrap='word')
+        self.item_info.grid(row=10, column=0, columnspan=4, sticky='w')
+        self.item_info.configure(state='disabled')
+        self._update_item_info(None)
+
+    def _update_item_info(self, var):
+        """刷新「物品说明」：var 为背包/仓库下拉框的 StringVar，按其中物品 ID 显示介绍"""
+        self._show_item_info(parse_item_id(var.get()) if var is not None else None)
+
+    def _bind_combo_step(self, box):
+        """让物品下拉框在未展开时用 ↑/↓ 直接切换上一项/下一项。
+        Tk 默认把 <Down> 绑成 ttk::combobox::Post（弹出下拉列表），这里覆盖掉；
+        下拉列表已展开时焦点在 popdown 的 listbox 上，走的是另一套绑定，不受影响。"""
+        box.bind('<Up>', lambda e: self._combo_step(box, -1))
+        box.bind('<Down>', lambda e: self._combo_step(box, 1))
+
+    def _combo_step(self, box, delta):
+        """↑/↓：把下拉框的值切到相邻候选项（到边界就停住，不循环），并刷新「物品说明」"""
+        values = list(box['values'])
+        if not values:
+            return 'break'
+        cur = box.get()
+        if cur in values:
+            idx = values.index(cur)
+        else:
+            # 手输的内容（可能只是物品 ID）：先在候选列表里按 ID 找到它所在的位置，
+            # 再前后移动；候选列表按类别/买价排序，所以不能靠 ID 数值推算位置
+            iid = parse_item_id(cur) if cur else None
+            idx = None
+            if iid is not None:
+                for i, label in enumerate(values):
+                    if parse_item_id(label) == iid:
+                        idx = i
+                        break
+            if idx is None:
+                # ID 不在本框的候选里（如空值、或装备页里不属于该部位的 ID）：从首/末项进入
+                idx = -1 if delta > 0 else len(values)
+        box.current(min(max(idx + delta, 0), len(values) - 1))
+        box.event_generate('<<ComboboxSelected>>')   # 让下方「物品说明」跟着刷新
+        return 'break'
+
+    def _on_item_tree_select(self, tree):
+        """在角色背包 / 全队仓库列表里点选一行时，显示该物品的介绍"""
+        sel = tree.selection()
+        if not sel:
+            # 列表被刷新（如删除/改数量）后选择会丢失，此时保留原来的说明，不清屏
+            return
+        self._show_item_info(parse_item_id(sel[0]))
+
+    def _show_item_info(self, iid):
+        """把物品说明写进只读文本框；iid 为 None 时恢复提示文案"""
+        if not iid:
+            text = ("(在「角色背包」或「全队仓库」下拉框里选择物品（也可直接手输 ID），"
+                    "或在下面的列表里点选一行，这里会显示物品介绍)")
+        else:
+            it = ITEM_TABLE.get(iid)
+            if not it:
+                text = f"{iid}  (数据表中没有这个 ID，可能是任务或特殊物品)"
+            else:
+                lines = [item_title(iid)]
+                if it.get('price'):
+                    lines.append(f"买价：{it['price']}")
+                if it.get('desc'):
+                    lines.append('')
+                    lines.extend('    ' + ln for ln in it['desc'].split('\n'))
+                text = '\n'.join(lines)
+        self.item_info.configure(state='normal')
+        self.item_info.delete('1.0', 'end')
+        self.item_info.insert('1.0', text)
+        self.item_info.configure(state='disabled')
 
     def _bag_rows(self):
         """背包聚合视图：[(item_id, count)]，按 ID 排序"""
@@ -853,11 +964,13 @@ class HSLEditor:
         sel = self.char_combo.get()
         if not sel:
             return
-        # 格式: "Name (PID:100)"
-        try:
-            pid = int(sel.split("(PID:")[-1].rstrip(")"))
-        except (ValueError, IndexError):
+        # 格式: "Name Lv.X (PID:100)" 或 "Name Lv.X (PID:100) [仅存档]"
+        # 使用正则提取 PID，兼容各种后缀
+        m = re.search(r'\(PID:(\d+)\)', sel)
+        if not m:
+            self._show_status("无法解析角色 PID", is_error=True)
             return
+        pid = int(m.group(1))
         # 先把当前角色的数据从 UI 写回内存
         self._apply_current_to_data()
         # 切换到新角色
@@ -873,20 +986,23 @@ class HSLEditor:
             self.entity_key, self.entity = ent
         else:
             self.entity_key, self.entity = None, None
+        # 上一个角色的物品说明已经过时，切人后先复位成提示文案
+        if hasattr(self, 'item_info'):
+            self._show_item_info(None)
 
     def _build_char_list(self):
         """根据已加载数据构建角色下拉列表"""
         entries = []
         for pid in sorted(self.all_entities.keys()):
             ent = self.all_entities[pid][1]
-            name = ent.get('Name', f'角色{pid}')
+            name = ent.get('Name') or f'角色{pid}'
             lv = ent.get('Level', '?')
             entries.append(f"{name} Lv.{lv} (PID:{pid})")
         # 也加上只有 record 没有 entity 的角色
         for pid in sorted(self.all_records.keys()):
             if pid not in self.all_entities:
                 rec = self.all_records[pid]
-                name = rec.get('Name', f'角色{pid}')
+                name = rec.get('Name') or f'角色{pid}'
                 lv = rec.get('Level', '?')
                 entries.append(f"{name} Lv.{lv} (PID:{pid}) [仅存档]")
         self.char_combo['values'] = entries
