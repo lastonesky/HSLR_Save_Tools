@@ -150,10 +150,13 @@ class HSLEditor:
         # ---- 多角色支持 ----
         self.all_records = {}   # {PlayerId: record_dict}  GDCharRecordInfo
         self.all_entities = {}  # {PlayerId: (entity_key, entity_dict)}  charEntitiesMap 中己方(Camp=2)
+        self.all_stage_entities = {}  # {entity_key: entity_dict}  charEntitiesMap 中全部战场实体
         self.current_pid = None # 当前选中的角色 PlayerId
+        self.current_target = None  # ('entity', entity_key) or ('record', pid)
         self.record = None      # 当前角色的 GDCharRecordInfo["pid"]
         self.entity = None      # 当前角色的战场实体
         self.entity_key = None  # 当前角色在 charEntitiesMap 中的 key
+        self.char_choice_map = {}  # {combobox_text: ('entity', key) / ('record', pid)}
         # ---- 装备/物品编辑状态 ----
         self.bag_items = []     # 角色背包：物品 ID 列表（重复即数量）
         self.storage_items = {} # 全队仓库：{物品 ID: 数量}
@@ -419,7 +422,7 @@ class HSLEditor:
                 efa[k] = 100
 
         # 刷新当前角色显示
-        self._set_current_char(self.current_pid)
+        self._set_current_char(pid=self.current_pid, entity_key=self.entity_key)
         self.refresh_ui()
         count = len(set(self.all_records) | set(self.all_entities))
         self._show_status(f"✓ 已全队满属性: {count} 个角色（血/MP+属性加成，等级与经验未改动）")
@@ -916,12 +919,15 @@ class HSLEditor:
                 if rec:
                     rec.setdefault('FightAttr', {})['Defense'] = val
 
-            # 写回 charEntitiesMap
+            # 写回当前缓存
             cem[row_id] = ent
+            self.all_stage_entities[row_id] = ent
 
             # 如果是己方角色，同步更新 all_entities
             if pid and pid in self.all_entities:
                 self.all_entities[pid] = (row_id, ent)
+            if self.entity_key == row_id:
+                self.entity = ent
 
             # 刷新表格显示
             self._load_roster()
@@ -964,52 +970,111 @@ class HSLEditor:
         sel = self.char_combo.get()
         if not sel:
             return
-        # 格式: "Name Lv.X (PID:100)" 或 "Name Lv.X (PID:100) [仅存档]"
-        # 使用正则提取 PID，兼容各种后缀
-        m = re.search(r'\(PID:(\d+)\)', sel)
-        if not m:
-            self._show_status("无法解析角色 PID", is_error=True)
+        target = self.char_choice_map.get(sel)
+        if not target:
+            self._show_status("无法解析角色选择项", is_error=True)
             return
-        pid = int(m.group(1))
         # 先把当前角色的数据从 UI 写回内存
         self._apply_current_to_data()
         # 切换到新角色
-        self._set_current_char(pid)
+        kind, value = target
+        if kind == 'entity':
+            self._set_current_char(entity_key=value)
+        else:
+            self._set_current_char(pid=value)
         self.refresh_ui()
 
-    def _set_current_char(self, pid):
+    def _set_current_char(self, pid=None, entity_key=None):
         """设置当前编辑角色"""
         self.current_pid = pid
-        self.record = self.all_records.get(pid)
-        ent = self.all_entities.get(pid)
-        if ent:
-            self.entity_key, self.entity = ent
+        self.record = self.all_records.get(pid) if pid is not None else None
+        self.entity_key, self.entity = None, None
+
+        if entity_key is not None:
+            self.entity_key = entity_key
+            self.entity = self.all_stage_entities.get(entity_key)
+            if self.entity is not None:
+                ent_pid = self.entity.get('PlayerId')
+                try:
+                    self.current_pid = int(ent_pid) if ent_pid is not None else None
+                except (TypeError, ValueError):
+                    self.current_pid = None
+                self.record = self.all_records.get(self.current_pid) if self.current_pid is not None else None
+                self.current_target = ('entity', entity_key)
+        elif pid is not None:
+            ent = self.all_entities.get(pid)
+            if ent:
+                self.entity_key, self.entity = ent
+                self.current_target = ('entity', self.entity_key)
+            else:
+                self.current_target = ('record', pid)
         else:
-            self.entity_key, self.entity = None, None
+            self.current_target = None
+
         # 上一个角色的物品说明已经过时，切人后先复位成提示文案
         if hasattr(self, 'item_info'):
             self._show_item_info(None)
 
+    def _make_unique_char_entry(self, entries, base_text):
+        """确保下拉列表文案唯一，避免同名同等级敌方实体互相覆盖"""
+        if base_text not in self.char_choice_map:
+            return base_text
+        idx = 2
+        while True:
+            candidate = f"{base_text} [{idx}]"
+            if candidate not in self.char_choice_map:
+                return candidate
+            idx += 1
+
     def _build_char_list(self):
         """根据已加载数据构建角色下拉列表"""
         entries = []
+        self.char_choice_map = {}
+
         for pid in sorted(self.all_entities.keys()):
             ent = self.all_entities[pid][1]
             name = ent.get('Name') or f'角色{pid}'
             lv = ent.get('Level', '?')
-            entries.append(f"{name} Lv.{lv} (PID:{pid})")
+            text = self._make_unique_char_entry(entries, f"{name} Lv.{lv} (我方 PID:{pid})")
+            entries.append(text)
+            self.char_choice_map[text] = ('entity', self.all_entities[pid][0])
         # 也加上只有 record 没有 entity 的角色
         for pid in sorted(self.all_records.keys()):
             if pid not in self.all_entities:
                 rec = self.all_records[pid]
                 name = rec.get('Name') or f'角色{pid}'
                 lv = rec.get('Level', '?')
-                entries.append(f"{name} Lv.{lv} (PID:{pid}) [仅存档]")
+                text = self._make_unique_char_entry(entries, f"{name} Lv.{lv} (我方 PID:{pid}) [仅存档]")
+                entries.append(text)
+                self.char_choice_map[text] = ('record', pid)
+
+        # 敌方/中立等非我方战场实体排在友方后面
+        extra_entities = []
+        for key, ent in self.all_stage_entities.items():
+            camp = ent.get('Camp')
+            if camp == 2:
+                continue
+            pid = ent.get('PlayerId')
+            try:
+                pid_sort = int(pid) if pid is not None else 10**9
+            except (TypeError, ValueError):
+                pid_sort = 10**9
+            name = ent.get('Name') or key
+            extra_entities.append((camp, pid_sort, str(name), key, ent))
+        for camp, _, _, key, ent in sorted(extra_entities, key=lambda x: (x[0], x[1], x[2])):
+            pid = ent.get('PlayerId', '?')
+            name = ent.get('Name') or key
+            lv = ent.get('Level', '?')
+            camp_str = {1: "敌方", 3: "中立"}.get(camp, f"阵营{camp}")
+            text = self._make_unique_char_entry(entries, f"{name} Lv.{lv} ({camp_str} PID:{pid})")
+            entries.append(text)
+            self.char_choice_map[text] = ('entity', key)
+
         self.char_combo['values'] = entries
         # 选中当前角色
-        if self.current_pid is not None:
+        if self.current_target is not None:
             for i, e in enumerate(entries):
-                if f"(PID:{self.current_pid})" in e:
+                if self.char_choice_map.get(e) == self.current_target:
                     self.char_combo.current(i)
                     break
 
@@ -1089,14 +1154,19 @@ class HSLEditor:
                 if isinstance(rec, dict):
                     self.all_records[pid] = rec
 
-            # 收集所有己方战场实体 (charEntitiesMap, Camp=2)
+            # 收集全部战场实体，同时为己方建立按 PID 的索引
             cem = (self.stage or {}).get('charEntitiesMap', {})
             self.all_entities = {}
+            self.all_stage_entities = {}
             first_pid = None
+            first_entity_key = None
             for key, val in cem.items():
                 v = json.loads(val) if isinstance(val, str) else val
                 if not isinstance(v, dict):
                     continue
+                self.all_stage_entities[key] = v
+                if first_entity_key is None:
+                    first_entity_key = key
                 pid = v.get('PlayerId')
                 if pid is not None and v.get('Camp') == 2:
                     self.all_entities[pid] = (key, v)
@@ -1104,13 +1174,19 @@ class HSLEditor:
                         first_pid = pid
 
             # 默认选中第一个角色（优先主角 PID=100）
-            default_pid = 100 if 100 in self.all_entities else first_pid
-            if default_pid is None and self.all_records:
-                default_pid = next(iter(self.all_records))
-            self._set_current_char(default_pid)
+            if 100 in self.all_entities:
+                self._set_current_char(pid=100)
+            elif first_pid is not None:
+                self._set_current_char(pid=first_pid)
+            elif self.all_records:
+                self._set_current_char(pid=next(iter(self.all_records)))
+            elif first_entity_key is not None:
+                self._set_current_char(entity_key=first_entity_key)
+            else:
+                self._set_current_char()
             self._build_char_list()
             self.refresh_ui()
-            battle_info = "无战场数据(非战斗存档)" if self.stage is None else f"战场实体: {len(self.all_entities)}"
+            battle_info = "无战场数据(非战斗存档)" if self.stage is None else f"战场实体: {len(self.all_stage_entities)}"
             item_info = f"物品表 {len(ITEM_TABLE)} 项" if ITEM_TABLE else "未加载物品表"
             self._show_status(f"✓ 已加载: {os.path.basename(path)}  ({battle_info} · 存档角色: {len(self.all_records)} · {item_info})")
         except Exception as e:
@@ -1118,7 +1194,7 @@ class HSLEditor:
 
     def _apply_current_to_data(self):
         """将当前角色的 UI 值写回到内存数据结构（不触发保存）"""
-        if not self.save_data or self.current_pid is None:
+        if not self.save_data or (self.current_pid is None and self.entity is None):
             return
         pid = self.current_pid
 
@@ -1145,9 +1221,8 @@ class HSLEditor:
                 fa[key] = int(self.record_vars[f"FightAttr.{key}"].get() or 0)
 
         # 战场属性 -> entity
-        ent_info = self.all_entities.get(pid)
-        if ent_info:
-            ekey, ent = ent_info
+        ent = self.entity
+        if ent:
             new_hp = int(self.battle_vars["Hp"].get() or 0)
             new_maxhp = int(self.battle_vars["MaxHp"].get() or 0)
             new_mp = int(self.battle_vars["Mp"].get() or 0)
@@ -1180,7 +1255,7 @@ class HSLEditor:
 
     def _apply_equip_items_to_data(self):
         """把装备/物品/技能页的 UI 写回内存（持久层 record 与战场实体都写；仓库写 gplay）"""
-        if not self.save_data or self.current_pid is None:
+        if not self.save_data or (self.current_pid is None and self.entity is None):
             return
         pid = self.current_pid
         equips = {str(slot): iid for slot, iid in self._current_equips_from_ui().items()}
@@ -1203,9 +1278,8 @@ class HSLEditor:
             rec['NrlSkillId'] = nrl          # 存档记录里是小写 d
             rec['MagicSkillIDs'] = list(magic)
             rec['SpSkillIDs'] = list(sp)
-        ent_info = self.all_entities.get(pid)
-        if ent_info:
-            ent = ent_info[1]
+        if self.entity is not None:
+            ent = self.entity
             ent['EquipIDs'] = copy.deepcopy(equips)
             ent['ItemIDs'] = list(bag)
             ent['NrlSkillID'] = nrl          # 战场实体里是大写 D
@@ -1268,6 +1342,9 @@ class HSLEditor:
         if self.record:
             self.basic_vars["Level"].set(str(self.record.get('Level', '')))
             self.basic_vars["Exp"].set(str(self.record.get('Exp', '')))
+        elif self.entity:
+            self.basic_vars["Level"].set(str(self.entity.get('Level', '')))
+            self.basic_vars["Exp"].set(str(self.entity.get('Exp', '')))
         else:
             self.basic_vars["Level"].set("")
             self.basic_vars["Exp"].set("")
@@ -1327,7 +1404,7 @@ class HSLEditor:
         # 将所有角色的修改写回 stage/gplay
         if self.stage is not None:
             cem = self.stage.setdefault('charEntitiesMap', {})
-            for pid, (ekey, ent) in self.all_entities.items():
+            for ekey, ent in self.all_stage_entities.items():
                 cem[ekey] = ent
 
         records = self.gplay.setdefault('GDCharRecordInfo', {})
