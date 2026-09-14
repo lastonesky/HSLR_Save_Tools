@@ -8,6 +8,64 @@
 #include <windows.h>
 #include "cJSON.h"
 
+/* TCC winapi headers may not define CP_UTF8 */
+#ifndef CP_UTF8
+#define CP_UTF8 65001
+#endif
+
+/* TCC winapi: minimal declarations for missing functions/types */
+#ifndef SNDMSG
+#define SNDMSG SendMessage
+#endif
+
+/* ComboBox messages missing from TCC headers */
+#ifndef CB_SETTEXT
+#define CB_SETTEXT         0x014D
+#define CB_GETTEXT         0x0148
+#define CB_GETLBTEXT       0x0149
+#define CB_GETLBTEXTLEN    0x014A
+#define CB_ADDSTRING       0x0143
+#define CB_RESETCONTENT    0x014B
+#define CB_SETCURSEL       0x014E
+#define CB_GETCURSEL       0x014F
+#define CB_GETCOUNT        0x0146
+#define CBS_DROPDOWN       0x00020000
+#define CBS_AUTOHSCROLL    0x00000080
+#define CBN_SELCHANGE      1
+#endif
+
+/* Tab control messages missing from TCC headers */
+#ifndef TCM_GETCURSEL
+#define TCM_GETCURSEL      (TCM_FIRST + 11)
+#endif
+
+/* ListView messages missing from TCC headers */
+#ifndef LVM_INSERTCOLUMNA
+#define LVM_INSERTCOLUMNA   (LVM_FIRST + 27)
+#endif
+
+/* ListView states */
+#ifndef LVIS_SELECTED
+#define LVIS_SELECTED       0x0002
+#endif
+
+/* WM_USER */
+#ifndef WM_USER
+#define WM_USER            0x0400
+#endif
+
+#ifndef WINNLS_H /* TCC may not include winnls.h */
+#ifdef __cplusplus
+extern "C" {
+#endif
+WCHAR* WINAPI CharLowerW(WCHAR*);
+int WINAPI MultiByteToWideChar(UINT, DWORD, LPCSTR, int, LPWSTR, int);
+int WINAPI WideCharToMultiByte(UINT, DWORD, LPCWSTR, int, LPSTR, int, LPCSTR, LPBOOL);
+#ifdef __cplusplus
+}
+#endif
+#endif
+
 /* Helper: set a cJSON number's value (item must already exist and be a number) */
 #define cJSON_SetNumber(item, val) do { \
     if (item) { (item)->valueint = (val); (item)->valuedouble = (double)(val); } \
@@ -80,13 +138,13 @@ typedef struct {
 
 typedef struct {
     int Str, Dex, Mind, Con;
-    int MaxHp, MaxMp;
+    int MaxHp, MaxMp, MaxStamina;
     int PhysicalAttack, MagicAttack, Defense, Speed;
     int CriticalRatio, DodgeRatio;
 } PermFightAttr;
 
 typedef struct {
-    int Hp, MaxHp, Mp, MaxMp;
+    int Hp, MaxHp, Mp, MaxMp, Stamina, MaxStamina;
     int Str, Dex, Mind, Con;
     int PhysicalAttack, MagicAttack, Defense, Speed, Move;
     int CriticalRatio, DodgeRatio;
@@ -130,7 +188,8 @@ typedef struct {
     int level;
     int exp;
 
-    int hp, max_hp, mp, max_mp;
+    int hp, max_hp, mp, max_mp, stamina, max_stamina;
+    int is_dead;
     BaseAttr  base;
     FightAttr fight;
 
@@ -182,6 +241,29 @@ typedef struct {
     char status_msg[512];
     int  status_is_error;
 } EditorState;
+
+/* ============================================================
+ /* Helper: get cJSON int value (with default) -- usable from hslr_gui.c */
+static int cJSON_GetInt(cJSON *obj, const char *key, int def)
+{
+    cJSON *item = cJSON_GetObjectItem(obj, key);
+    if (!item) return def;
+    if (cJSON_IsNumber(item)) return item->valueint;
+    if (cJSON_IsString(item)) return atoi(item->valuestring);
+    return def;
+}
+
+/* Helper: set cJSON int value -- usable from hslr_gui.c */
+static void cJSON_SetInt(cJSON *obj, const char *key, int val)
+{
+    cJSON *item = cJSON_GetObjectItem(obj, key);
+    if (item && cJSON_IsNumber(item)) {
+        item->valueint = val;
+        item->valuedouble = (double)val;
+    } else {
+        cJSON_AddNumberToObject(obj, key, val);
+    }
+}
 
 /* ============================================================
  * Function prototypes — hslr_save.c

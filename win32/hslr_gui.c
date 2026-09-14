@@ -19,8 +19,6 @@
 #include "hslr_data.h"
 #include "cJSON.h"
 
-#pragma comment(lib, "comctl32.lib")
-
 /* ============================================================
  * Window/control IDs
  * ============================================================ */
@@ -50,12 +48,13 @@
 #define ID_ED_PERM_CON   1213
 #define ID_ED_PERM_MAXHP 1214
 #define ID_ED_PERM_MAXMP 1215
-#define ID_ED_PERM_PATK  1216
-#define ID_ED_PERM_MATK  1217
-#define ID_ED_PERM_DEF   1218
-#define ID_ED_PERM_SPD   1219
-#define ID_ED_PERM_CRIT  1220
-#define ID_ED_PERM_DODGE 1221
+#define ID_ED_PERM_MAXSTAMINA 1216
+#define ID_ED_PERM_PATK  1217
+#define ID_ED_PERM_MATK  1218
+#define ID_ED_PERM_DEF   1219
+#define ID_ED_PERM_SPD   1220
+#define ID_ED_PERM_CRIT  1221
+#define ID_ED_PERM_DODGE 1222
 
 /* Record Attrs (FightAttr — read-only) */
 #define ID_ED_FIGHT_HP    1230
@@ -97,9 +96,13 @@
 #define ID_ED_BAT_MOVE  1314
 #define ID_ED_BAT_CRIT  1315
 #define ID_ED_BAT_DODGE 1316
+#define ID_ED_BAT_STAMINA    1317
+#define ID_ED_BAT_MAXSTAMINA 1318
+#define ID_CHK_ISDEAD        1319
 #define ID_BTN_FULL_HEAL 1320
 #define ID_BTN_MAX_BATTLE 1321
 #define ID_BTN_MAX_LEVEL  1322
+#define ID_LBL_BATTLE_NOTE 1323
 
 /* Tab page 4 — Equipment */
 #define ID_CB_EQUIP0    1400
@@ -151,11 +154,13 @@ static int  g_currentTab;
 
 /* Tab page 2 controls */
 static HWND g_edBase[6];      /* Str,Dex,Mind,Con,Hp,Mp */
-static HWND g_edPerm[12];     /* Str,Dex,Mind,Con,MaxHp,MaxMp,PAtk,MAtk,Def,Spd,Crit,Dodge */
+static HWND g_edPerm[13];     /* Str,Dex,Mind,Con,MaxHp,MaxMp,MaxStamina,PAtk,MAtk,Def,Spd,Crit,Dodge */
 static HWND g_edFight[20];    /* Hp,MaxHp,Mp,MaxMp,Str,Dex,Mind,Con,PAtk,MAtk,Def,Spd,Move,Crit,Dodge,FRes,WRes,ARes,ERes,MRes */
 
 /* Tab page 3 controls */
-static HWND g_edBat[17];      /* Hp,MaxHp,Mp,MaxMp,Lv,Exp,Str,Dex,Mind,Con,PAtk,MAtk,Def,Spd,Move,Crit,Dodge */
+static HWND g_edBat[19];      /* Hp,MaxHp,Mp,MaxMp,Lv,Exp,Str,Dex,Mind,Con,PAtk,MAtk,Def,Spd,Move,Crit,Dodge,Stamina,MaxStamina */
+static HWND g_chkIsDead;
+static HWND g_lblBattleNote;
 
 /* Tab page 4 controls */
 static HWND g_cbEquip[6];
@@ -169,6 +174,11 @@ static HWND g_lvStorage;
 static HWND g_cbStAdd;
 static HWND g_edStQty;
 static HWND g_txtItemInfo;
+
+/* Tab page 5 controls */
+static HWND g_edSkillNrl;
+static HWND g_edSkillMagic;
+static HWND g_edSkillSp;
 
 /* Tab page 7 */
 static HWND g_lvRoster;
@@ -380,12 +390,13 @@ static void CreateTabPages(HWND parent)
     CreateLabel(pg, "永久加成 (PermanentFightAttr) ★核心★", cx, cy, 600, 20);
     cy += 22;
     {
-        const char *labels[] = {"力量","敏捷","智力","体质","HP加成","MP加成",
+        const char *labels[] = {"力量","敏捷","智力","体质","HP加成","MP加成","气力加成",
                                  "物攻","魔攻","防御","速度","暴击率","闪避率"};
         int ids[] = {ID_ED_PERM_STR, ID_ED_PERM_DEX, ID_ED_PERM_MIND, ID_ED_PERM_CON,
-                     ID_ED_PERM_MAXHP, ID_ED_PERM_MAXMP, ID_ED_PERM_PATK, ID_ED_PERM_MATK,
+                     ID_ED_PERM_MAXHP, ID_ED_PERM_MAXMP, ID_ED_PERM_MAXSTAMINA,
+                     ID_ED_PERM_PATK, ID_ED_PERM_MATK,
                      ID_ED_PERM_DEF, ID_ED_PERM_SPD, ID_ED_PERM_CRIT, ID_ED_PERM_DODGE};
-        for (i = 0; i < 12; i++) {
+        for (i = 0; i < 13; i++) {
             int col = i % 4;
             int row = i / 4;
             CreateLabel(pg, labels[i], cx + col*180, cy + row*28, 50, 20);
@@ -427,23 +438,44 @@ static void CreateTabPages(HWND parent)
     {
         const char *labels[] = {"当前HP","最大HP","当前MP","最大MP","等级","经验",
                                  "力量","敏捷","智力","体质",
-                                 "物攻","魔攻","防御","速度","移动力","暴击率","闪避率"};
+                                 "物攻","魔攻","防御","速度","移动力","暴击率","闪避率",
+                                 "当前气力","最大气力"};
         int ids[] = {ID_ED_BAT_HP, ID_ED_BAT_MAXHP, ID_ED_BAT_MP, ID_ED_BAT_MAXMP,
                      ID_ED_BAT_LV, ID_ED_BAT_EXP,
                      ID_ED_BAT_STR, ID_ED_BAT_DEX, ID_ED_BAT_MIND, ID_ED_BAT_CON,
                      ID_ED_BAT_PATK, ID_ED_BAT_MATK, ID_ED_BAT_DEF, ID_ED_BAT_SPD,
-                     ID_ED_BAT_MOVE, ID_ED_BAT_CRIT, ID_ED_BAT_DODGE};
-        for (i = 0; i < 17; i++) {
+                     ID_ED_BAT_MOVE, ID_ED_BAT_CRIT, ID_ED_BAT_DODGE,
+                     ID_ED_BAT_STAMINA, ID_ED_BAT_MAXSTAMINA};
+        for (i = 0; i < 19; i++) {
             int col = i % 3;
             int row = i / 3;
             CreateLabel(pg, labels[i], cx + col*240, cy + row*28, 60, 20);
             g_edBat[i] = CreateEdit(pg, ids[i], cx + col*240 + 65, cy + row*28, 70, 20, 0);
         }
     }
-    cy = 10 + 6*28 + 10;
+    cy = 10 + 7*28 + 10;
+
+    /* IsDead checkbox */
+    g_chkIsDead = CreateWindowExA(NULL, "BUTTON", "已死亡 (IsDead)",
+        WS_CHILD | WS_VISIBLE | BS_AUTOCHECKBOX,
+        cx, cy, 160, 24,
+        pg, (HMENU)(INT_PTR)ID_CHK_ISDEAD, GetModuleHandle(NULL), NULL);
+    SendMessage(g_chkIsDead, WM_SETFONT, (WPARAM)GetStockObject(DEFAULT_GUI_FONT), TRUE);
+
+    /* Battle note for non-battle saves */
+    g_lblBattleNote = CreateWindowExA(0, "STATIC", "",
+        WS_CHILD | WS_VISIBLE | SS_LEFT,
+        cx + 170, cy, 500, 48,
+        pg, (HMENU)(INT_PTR)ID_LBL_BATTLE_NOTE, GetModuleHandle(NULL), NULL);
+    SendMessage(g_lblBattleNote, WM_SETFONT, (WPARAM)GetStockObject(DEFAULT_GUI_FONT), TRUE);
+
+    cy += 30;
     CreateButton(pg, ID_BTN_FULL_HEAL, "满血满蓝", cx, cy, 100, 28);
     CreateButton(pg, ID_BTN_MAX_BATTLE, "战场属性MAX", cx+110, cy, 120, 28);
     CreateButton(pg, ID_BTN_MAX_LEVEL, "Lv99+满经验", cx+240, cy, 120, 28);
+    cy += 35;
+    CreateLabel(pg, "⚠ 战场属性仅当前战斗有效，下次进图会重算。\n永久修改请到「存档属性」页或用底部「全队满属性(持久)」按钮。",
+                cx, cy, 700, 40);
 
     /* ========== Tab 3: Equipment ========== */
     pg = g_tabPages[3];
@@ -563,13 +595,13 @@ static void CreateTabPages(HWND parent)
     pg = g_tabPages[5];
     cx = 10; cy = 20;
     CreateLabel(pg, "普攻技能ID:", cx, cy, 80, 20);
-    g_edBat[0] = CreateEdit(pg, ID_ED_SKILL_NRL, cx+85, cy, 80, 20, 0);
+    g_edSkillNrl = CreateEdit(pg, ID_ED_SKILL_NRL, cx+85, cy, 80, 20, 0);
     cy += 30;
     CreateLabel(pg, "魔法技能IDs:", cx, cy, 80, 20);
-    CreateEdit(pg, ID_ED_SKILL_MAGIC, cx+85, cy, 500, 20, 0);
+    g_edSkillMagic = CreateEdit(pg, ID_ED_SKILL_MAGIC, cx+85, cy, 500, 20, 0);
     cy += 30;
     CreateLabel(pg, "特殊技能IDs:", cx, cy, 80, 20);
-    CreateEdit(pg, ID_ED_SKILL_SP, cx+85, cy, 500, 20, 0);
+    g_edSkillSp = CreateEdit(pg, ID_ED_SKILL_SP, cx+85, cy, 500, 20, 0);
     cy += 30;
     CreateLabel(pg, "格式：逗号分隔的ID，如 66,87,70", cx, cy, 700, 20);
 
@@ -1025,7 +1057,7 @@ static void LoadSkillsFromData(void)
         if (rec) nrl = rec->nrl_skill;
         else if (ent) nrl = ent->nrl_skill;
         snprintf(buf, sizeof(buf), "%d", nrl);
-        SetWindowTextA(GetDlgItem(g_tabPages[5], ID_ED_SKILL_NRL), nrl ? buf : "");
+        SetWindowTextA(g_edSkillNrl, nrl ? buf : "");
     }
 
     /* Magic skills */
@@ -1037,7 +1069,7 @@ static void LoadSkillsFromData(void)
         for (i = 0; i < ent->magic_skill_count; i++)
             pos += snprintf(buf + pos, sizeof(buf) - pos, "%s%d", i ? "," : "", ent->magic_skills[i]);
     }
-    SetWindowTextA(GetDlgItem(g_tabPages[5], ID_ED_SKILL_MAGIC), buf);
+    SetWindowTextA(g_edSkillMagic, buf);
 
     /* Special skills */
     pos = 0;
@@ -1048,7 +1080,7 @@ static void LoadSkillsFromData(void)
         for (i = 0; i < ent->sp_skill_count; i++)
             pos += snprintf(buf + pos, sizeof(buf) - pos, "%s%d", i ? "," : "", ent->sp_skills[i]);
     }
-    SetWindowTextA(GetDlgItem(g_tabPages[5], ID_ED_SKILL_SP), buf);
+    SetWindowTextA(g_edSkillSp, buf);
 }
 
 static void LoadStorageFromData(void)
@@ -1119,12 +1151,13 @@ static void RefreshCurrentChar(void)
         if (pfa) {
             char v[32];
             int ids[] = {ID_ED_PERM_STR, ID_ED_PERM_DEX, ID_ED_PERM_MIND, ID_ED_PERM_CON,
-                         ID_ED_PERM_MAXHP, ID_ED_PERM_MAXMP, ID_ED_PERM_PATK, ID_ED_PERM_MATK,
+                         ID_ED_PERM_MAXHP, ID_ED_PERM_MAXMP, ID_ED_PERM_MAXSTAMINA,
+                         ID_ED_PERM_PATK, ID_ED_PERM_MATK,
                          ID_ED_PERM_DEF, ID_ED_PERM_SPD, ID_ED_PERM_CRIT, ID_ED_PERM_DODGE};
-            const char *keys[] = {"Str","Dex","Mind","Con","MaxHp","MaxMp",
+            const char *keys[] = {"Str","Dex","Mind","Con","MaxHp","MaxMp","MaxStamina",
                                    "PhysicalAttack","MagicAttack","Defense","Speed","CriticalRatio","DodgeRatio"};
             int k;
-            for (k = 0; k < 12; k++) {
+            for (k = 0; k < 13; k++) {
                 snprintf(v, sizeof(v), "%d", cJSON_GetInt(pfa, keys[k], 0));
                 SetWindowTextA(GetDlgItem(g_tabPages[1], ids[k]), v);
             }
@@ -1169,6 +1202,21 @@ static void RefreshCurrentChar(void)
         snprintf(v, sizeof(v), "%d", ent->fight.Move); SetWindowTextA(g_edBat[14], v);
         snprintf(v, sizeof(v), "%d", ent->fight.CriticalRatio); SetWindowTextA(g_edBat[15], v);
         snprintf(v, sizeof(v), "%d", ent->fight.DodgeRatio); SetWindowTextA(g_edBat[16], v);
+        snprintf(v, sizeof(v), "%d", ent->stamina); SetWindowTextA(g_edBat[17], v);
+        snprintf(v, sizeof(v), "%d", ent->max_stamina); SetWindowTextA(g_edBat[18], v);
+        SendMessage(g_chkIsDead, BM_SETCHECK, ent->is_dead ? BST_CHECKED : BST_UNCHECKED, 0);
+        SetWindowTextA(g_lblBattleNote, "");
+    } else {
+        int k;
+        for (k = 0; k < 19; k++) SetWindowTextA(g_edBat[k], "0");
+        SendMessage(g_chkIsDead, BM_SETCHECK, BST_UNCHECKED, 0);
+    }
+
+    /* Battle note for non-battle saves */
+    if (!g_ed.stage) {
+        set_ctrl_text_utf8(g_lblBattleNote,
+            "⚠ 该存档保存于非战斗状态(stage=null)，不含战场数据；\n"
+            "本页修改无效，持久修改请用「存档属性」页或底部「全队满属性(持久)」。");
     }
 
     /* Equipment / Items / Skills / Storage */
@@ -1183,11 +1231,15 @@ static void RefreshCurrentChar(void)
 
 /* ============================================================
  * Apply UI values back to current character data
+ * Updates both cJSON tree AND C structs (CharRecord/CharEntity)
+ * so that data_sync_to_json writes correct values.
  * ============================================================ */
 static void ApplyUIToCurrent(void)
 {
     int i;
     cJSON *rec_json = NULL;
+    CharRecord *rec = NULL;
+    CharEntity *ent = NULL;
 
     if (g_ed.current_pid < 0 || !g_ed.gplay) return;
 
@@ -1201,47 +1253,86 @@ static void ApplyUIToCurrent(void)
         }
     }
 
+    /* Find C structs */
+    for (i = 0; i < g_ed.record_count; i++) {
+        if (g_ed.records[i].pid == g_ed.current_pid) { rec = &g_ed.records[i]; break; }
+    }
+    for (i = 0; i < g_ed.entity_count; i++) {
+        if (g_ed.entities[i].pid == g_ed.current_pid) { ent = &g_ed.entities[i]; break; }
+    }
+
     /* Basic info → record */
     if (rec_json) {
         char buf[64];
-        GetWindowTextA(g_edBase[0], buf, sizeof(buf)); cJSON_SetNumber(cJSON_GetObjectItem(rec_json, "Level"), atoi(buf));
-        GetWindowTextA(g_edBase[1], buf, sizeof(buf)); cJSON_SetNumber(cJSON_GetObjectItem(rec_json, "Exp"), atoi(buf));
+        int val;
+        GetWindowTextA(g_edBase[0], buf, sizeof(buf)); val = atoi(buf);
+        cJSON_SetNumber(cJSON_GetObjectItem(rec_json, "Level"), val);
+        if (rec) rec->level = val;
+        GetWindowTextA(g_edBase[1], buf, sizeof(buf)); val = atoi(buf);
+        cJSON_SetNumber(cJSON_GetObjectItem(rec_json, "Exp"), val);
+        if (rec) rec->exp = val;
     }
 
-    /* Record attrs → record */
+    /* Record attrs → record (BaseAttr, PermanentFightAttr) */
     if (rec_json) {
         cJSON *ba = cJSON_GetObjectItem(rec_json, "BaseAttr");
         cJSON *pfa = cJSON_GetObjectItem(rec_json, "PermanentFightAttr");
-        cJSON *fa = cJSON_GetObjectItem(rec_json, "FightAttr");
         char buf[64];
 
         if (ba) {
-            GetWindowTextA(g_edBase[0], buf, sizeof(buf)); cJSON_SetNumber(cJSON_GetObjectItem(ba, "Str"), atoi(buf));
-            GetWindowTextA(g_edBase[1], buf, sizeof(buf)); cJSON_SetNumber(cJSON_GetObjectItem(ba, "Dex"), atoi(buf));
-            GetWindowTextA(g_edBase[2], buf, sizeof(buf)); cJSON_SetNumber(cJSON_GetObjectItem(ba, "Mind"), atoi(buf));
-            GetWindowTextA(g_edBase[3], buf, sizeof(buf)); cJSON_SetNumber(cJSON_GetObjectItem(ba, "Con"), atoi(buf));
-            GetWindowTextA(g_edBase[4], buf, sizeof(buf)); cJSON_SetNumber(cJSON_GetObjectItem(ba, "Hp"), atoi(buf));
-            GetWindowTextA(g_edBase[5], buf, sizeof(buf)); cJSON_SetNumber(cJSON_GetObjectItem(ba, "Mp"), atoi(buf));
+            int ids[] = {ID_ED_BASE_STR, ID_ED_BASE_DEX, ID_ED_BASE_MIND, ID_ED_BASE_CON,
+                         ID_ED_BASE_HP, ID_ED_BASE_MP};
+            const char *keys[] = {"Str","Dex","Mind","Con","Hp","Mp"};
+            int k, val;
+            for (k = 0; k < 6; k++) {
+                GetWindowTextA(GetDlgItem(g_tabPages[1], ids[k]), buf, sizeof(buf));
+                val = atoi(buf);
+                cJSON_SetNumber(cJSON_GetObjectItem(ba, keys[k]), val);
+                if (rec) {
+                    if (k < 4) ((int*)&rec->base)[k] = val;
+                    else if (k == 4) rec->base.Hp = val;
+                    else rec->base.Mp = val;
+                }
+            }
         }
 
         if (pfa) {
             int ids[] = {ID_ED_PERM_STR, ID_ED_PERM_DEX, ID_ED_PERM_MIND, ID_ED_PERM_CON,
-                         ID_ED_PERM_MAXHP, ID_ED_PERM_MAXMP, ID_ED_PERM_PATK, ID_ED_PERM_MATK,
+                         ID_ED_PERM_MAXHP, ID_ED_PERM_MAXMP, ID_ED_PERM_MAXSTAMINA,
+                         ID_ED_PERM_PATK, ID_ED_PERM_MATK,
                          ID_ED_PERM_DEF, ID_ED_PERM_SPD, ID_ED_PERM_CRIT, ID_ED_PERM_DODGE};
-            const char *keys[] = {"Str","Dex","Mind","Con","MaxHp","MaxMp",
+            const char *keys[] = {"Str","Dex","Mind","Con","MaxHp","MaxMp","MaxStamina",
                                    "PhysicalAttack","MagicAttack","Defense","Speed","CriticalRatio","DodgeRatio"};
-            int k;
-            for (k = 0; k < 12; k++) {
+            int k, val;
+            for (k = 0; k < 13; k++) {
                 GetWindowTextA(GetDlgItem(g_tabPages[1], ids[k]), buf, sizeof(buf));
-                cJSON_SetNumber(cJSON_GetObjectItem(pfa, keys[k]), atoi(buf));
+                val = atoi(buf);
+                cJSON_SetNumber(cJSON_GetObjectItem(pfa, keys[k]), val);
+                if (rec) {
+                    switch(k) {
+                    case 0: rec->perm.Str = val; break;
+                    case 1: rec->perm.Dex = val; break;
+                    case 2: rec->perm.Mind = val; break;
+                    case 3: rec->perm.Con = val; break;
+                    case 4: rec->perm.MaxHp = val; break;
+                    case 5: rec->perm.MaxMp = val; break;
+                    case 6: rec->perm.MaxStamina = val; break;
+                    case 7: rec->perm.PhysicalAttack = val; break;
+                    case 8: rec->perm.MagicAttack = val; break;
+                    case 9: rec->perm.Defense = val; break;
+                    case 10: rec->perm.Speed = val; break;
+                    case 11: rec->perm.CriticalRatio = val; break;
+                    case 12: rec->perm.DodgeRatio = val; break;
+                    }
+                }
             }
         }
 
         /* Note: FightAttr is read-only in Tab 1, no need to apply back */
     }
 
-    /* Equipment from UI */
-    {
+    /* Equipment from UI → cJSON + C struct */
+    if (rec_json) {
         cJSON *equip_obj = cJSON_GetObjectItem(rec_json, "EquipIDs");
         if (!equip_obj) { equip_obj = cJSON_CreateObject(); cJSON_AddItemToObject(rec_json, "EquipIDs", equip_obj); }
         for (i = 0; i < NUM_EQUIP_SLOTS; i++) {
@@ -1251,71 +1342,182 @@ static void ApplyUIToCurrent(void)
             text = get_ctrl_text_utf8(g_cbEquip[i]);
             id = item_parse_id(text);
             free(text);
-            if (id >= 0)
+            if (id >= 0) {
                 cJSON_SetNumber(cJSON_GetObjectItem(equip_obj, key), id);
-            else
+                if (rec) rec->equip[i] = id;
+            } else {
                 cJSON_DeleteItemFromObject(equip_obj, key);
+                if (rec) rec->equip[i] = -1;
+            }
         }
     }
 
-    /* Skills from UI */
+    /* Skills from UI → cJSON + C struct */
     {
         char buf[1024];
         cJSON *magic_arr, *sp_arr;
+        char *tok;
 
-        GetWindowTextA(GetDlgItem(g_tabPages[5], ID_ED_SKILL_NRL), buf, sizeof(buf));
-        cJSON_SetNumber(cJSON_GetObjectItem(rec_json, "NrlSkillId"), atoi(buf));
+        GetWindowTextA(g_edSkillNrl, buf, sizeof(buf));
+        {
+            int nrl_val = atoi(buf);
+            cJSON_SetNumber(cJSON_GetObjectItem(rec_json, "NrlSkillId"), nrl_val);
+            if (rec) rec->nrl_skill = nrl_val;
+        }
 
-        GetWindowTextA(GetDlgItem(g_tabPages[5], ID_ED_SKILL_MAGIC), buf, sizeof(buf));
+        GetWindowTextA(g_edSkillMagic, buf, sizeof(buf));
         magic_arr = cJSON_GetObjectItem(rec_json, "MagicSkillIDs");
         if (magic_arr) cJSON_DeleteItemFromObject(rec_json, "MagicSkillIDs");
         magic_arr = cJSON_CreateArray();
-        {
-            char *tok = strtok(buf, ",");
-            while (tok) {
-                while (*tok == ' ') tok++;
-                if (*tok) cJSON_AddItemToArray(magic_arr, cJSON_CreateNumber(atoi(tok)));
-                tok = strtok(NULL, ",");
+        if (rec) rec->magic_skill_count = 0;
+        tok = strtok(buf, ",");
+        while (tok) {
+            while (*tok == ' ') tok++;
+            if (*tok) {
+                int sid = atoi(tok);
+                cJSON_AddItemToArray(magic_arr, cJSON_CreateNumber(sid));
+                if (rec && rec->magic_skill_count < 64)
+                    rec->magic_skills[rec->magic_skill_count++] = sid;
             }
+            tok = strtok(NULL, ",");
         }
         cJSON_AddItemToObject(rec_json, "MagicSkillIDs", magic_arr);
 
-        GetWindowTextA(GetDlgItem(g_tabPages[5], ID_ED_SKILL_SP), buf, sizeof(buf));
+        GetWindowTextA(g_edSkillSp, buf, sizeof(buf));
         sp_arr = cJSON_GetObjectItem(rec_json, "SpSkillIDs");
         if (sp_arr) cJSON_DeleteItemFromObject(rec_json, "SpSkillIDs");
         sp_arr = cJSON_CreateArray();
-        {
-            char *tok = strtok(buf, ",");
-            while (tok) {
-                while (*tok == ' ') tok++;
-                if (*tok) cJSON_AddItemToArray(sp_arr, cJSON_CreateNumber(atoi(tok)));
-                tok = strtok(NULL, ",");
+        if (rec) rec->sp_skill_count = 0;
+        tok = strtok(buf, ",");
+        while (tok) {
+            while (*tok == ' ') tok++;
+            if (*tok) {
+                int sid = atoi(tok);
+                cJSON_AddItemToArray(sp_arr, cJSON_CreateNumber(sid));
+                if (rec && rec->sp_skill_count < 64)
+                    rec->sp_skills[rec->sp_skill_count++] = sid;
             }
+            tok = strtok(NULL, ",");
         }
         cJSON_AddItemToObject(rec_json, "SpSkillIDs", sp_arr);
     }
 
-    /* Also sync to entity if exists */
+    /* Battle attrs → entity (also sync HP/MP/Stamina to record's FightAttr) */
+    if (ent && g_ed.stage) {
+        cJSON *cem = cJSON_GetObjectItem(g_ed.stage, "charEntitiesMap");
+        cJSON *ent_json = cem ? cJSON_GetObjectItem(cem, ent->key) : NULL;
+        char buf[32];
+
+        /* Read battle UI values */
+        GetWindowTextA(g_edBat[0], buf, sizeof(buf)); ent->hp = atoi(buf);
+        GetWindowTextA(g_edBat[1], buf, sizeof(buf)); ent->max_hp = atoi(buf);
+        GetWindowTextA(g_edBat[2], buf, sizeof(buf)); ent->mp = atoi(buf);
+        GetWindowTextA(g_edBat[3], buf, sizeof(buf)); ent->max_mp = atoi(buf);
+        GetWindowTextA(g_edBat[4], buf, sizeof(buf)); ent->level = atoi(buf);
+        GetWindowTextA(g_edBat[5], buf, sizeof(buf)); ent->exp = atoi(buf);
+        GetWindowTextA(g_edBat[17], buf, sizeof(buf)); ent->stamina = atoi(buf);
+        GetWindowTextA(g_edBat[18], buf, sizeof(buf)); ent->max_stamina = atoi(buf);
+        ent->is_dead = (SendMessage(g_chkIsDead, BM_GETCHECK, 0, 0) == BST_CHECKED) ? 1 : 0;
+
+        /* Read fight attrs from battle tab */
+        {
+            int bat_ids[] = {ID_ED_BAT_STR, ID_ED_BAT_DEX, ID_ED_BAT_MIND, ID_ED_BAT_CON,
+                             ID_ED_BAT_PATK, ID_ED_BAT_MATK, ID_ED_BAT_DEF, ID_ED_BAT_SPD,
+                             ID_ED_BAT_MOVE, ID_ED_BAT_CRIT, ID_ED_BAT_DODGE};
+            int k;
+            for (k = 0; k < 11; k++) {
+                GetWindowTextA(GetDlgItem(g_tabPages[2], bat_ids[k]), buf, sizeof(buf));
+                /* map to fight attr */
+            }
+        }
+        /* Simplified: just set key fight attrs from the edit controls */
+        {
+            int v;
+            GetWindowTextA(g_edBat[6], buf, sizeof(buf)); v = atoi(buf); ent->fight.Str = v;
+            GetWindowTextA(g_edBat[7], buf, sizeof(buf)); v = atoi(buf); ent->fight.Dex = v;
+            GetWindowTextA(g_edBat[8], buf, sizeof(buf)); v = atoi(buf); ent->fight.Mind = v;
+            GetWindowTextA(g_edBat[9], buf, sizeof(buf)); v = atoi(buf); ent->fight.Con = v;
+            GetWindowTextA(g_edBat[10], buf, sizeof(buf)); v = atoi(buf); ent->fight.PhysicalAttack = v;
+            GetWindowTextA(g_edBat[11], buf, sizeof(buf)); v = atoi(buf); ent->fight.MagicAttack = v;
+            GetWindowTextA(g_edBat[12], buf, sizeof(buf)); v = atoi(buf); ent->fight.Defense = v;
+            GetWindowTextA(g_edBat[13], buf, sizeof(buf)); v = atoi(buf); ent->fight.Speed = v;
+            GetWindowTextA(g_edBat[14], buf, sizeof(buf)); v = atoi(buf); ent->fight.Move = v;
+            GetWindowTextA(g_edBat[15], buf, sizeof(buf)); v = atoi(buf); ent->fight.CriticalRatio = v;
+            GetWindowTextA(g_edBat[16], buf, sizeof(buf)); v = atoi(buf); ent->fight.DodgeRatio = v;
+            ent->fight.Hp = ent->hp;
+            ent->fight.MaxHp = ent->max_hp;
+            ent->fight.Mp = ent->mp;
+            ent->fight.MaxMp = ent->max_mp;
+            ent->fight.Stamina = ent->stamina;
+            ent->fight.MaxStamina = ent->max_stamina;
+        }
+
+        /* Write to entity cJSON */
+        if (ent_json && cJSON_IsObject(ent_json)) {
+            cJSON_SetInt(ent_json, "Hp", ent->hp);
+            cJSON_SetInt(ent_json, "MaxHp", ent->max_hp);
+            cJSON_SetInt(ent_json, "Mp", ent->mp);
+            cJSON_SetInt(ent_json, "MaxMp", ent->max_mp);
+            cJSON_SetInt(ent_json, "Level", ent->level);
+            cJSON_SetInt(ent_json, "Exp", ent->exp);
+            cJSON_SetInt(ent_json, "Stamina", ent->stamina);
+            cJSON_SetInt(ent_json, "MaxStamina", ent->max_stamina);
+            cJSON_SetInt(ent_json, "IsDead", ent->is_dead);
+            {
+                cJSON *ef = cJSON_GetObjectItem(ent_json, "FightAttr");
+                if (!ef) { ef = cJSON_CreateObject(); cJSON_AddItemToObject(ent_json, "FightAttr", ef); }
+                cJSON_SetInt(ef, "Hp", ent->hp);
+                cJSON_SetInt(ef, "MaxHp", ent->max_hp);
+                cJSON_SetInt(ef, "Mp", ent->mp);
+                cJSON_SetInt(ef, "MaxMp", ent->max_mp);
+                cJSON_SetInt(ef, "Stamina", ent->stamina);
+                cJSON_SetInt(ef, "MaxStamina", ent->max_stamina);
+                cJSON_SetInt(ef, "Str", ent->fight.Str);
+                cJSON_SetInt(ef, "Dex", ent->fight.Dex);
+                cJSON_SetInt(ef, "Mind", ent->fight.Mind);
+                cJSON_SetInt(ef, "Con", ent->fight.Con);
+                cJSON_SetInt(ef, "PhysicalAttack", ent->fight.PhysicalAttack);
+                cJSON_SetInt(ef, "MagicAttack", ent->fight.MagicAttack);
+                cJSON_SetInt(ef, "Defense", ent->fight.Defense);
+                cJSON_SetInt(ef, "Speed", ent->fight.Speed);
+                cJSON_SetInt(ef, "Move", ent->fight.Move);
+                cJSON_SetInt(ef, "CriticalRatio", ent->fight.CriticalRatio);
+                cJSON_SetInt(ef, "DodgeRatio", ent->fight.DodgeRatio);
+            }
+        }
+
+        /* Sync battle HP/MP/Stamina to record's FightAttr */
+        if (rec) {
+            rec->fight.Hp = ent->hp;
+            rec->fight.MaxHp = ent->max_hp;
+            rec->fight.Mp = ent->mp;
+            rec->fight.MaxMp = ent->max_mp;
+            rec->fight.Stamina = ent->stamina;
+            rec->fight.MaxStamina = ent->max_stamina;
+        }
+    }
+
+    /* Also sync equipment/skills to entity cJSON if exists */
     for (i = 0; i < g_ed.entity_count; i++) {
         if (g_ed.entities[i].pid == g_ed.current_pid) {
-            CharEntity *ent = &g_ed.entities[i];
+            CharEntity *e = &g_ed.entities[i];
             if (g_ed.stage) {
                 cJSON *cem = cJSON_GetObjectItem(g_ed.stage, "charEntitiesMap");
-                cJSON *ent_json = cem ? cJSON_GetObjectItem(cem, ent->key) : NULL;
-                if (ent_json && cJSON_IsObject(ent_json)) {
-                    cJSON *ent_equip = cJSON_GetObjectItem(ent_json, "EquipIDs");
-                    if (!ent_equip) { ent_equip = cJSON_CreateObject(); cJSON_AddItemToObject(ent_json, "EquipIDs", ent_equip); }
-                    { int k;
-                      for (k = 0; k < NUM_EQUIP_SLOTS; k++) {
-                          char key[8], *text;
-                          int eid;
-                          snprintf(key, sizeof(key), "%d", k);
-                          text = get_ctrl_text_utf8(g_cbEquip[k]);
-                          eid = item_parse_id(text);
-                          free(text);
-                          if (eid >= 0) cJSON_SetNumber(cJSON_GetObjectItem(ent_equip, key), eid);
-                          else cJSON_DeleteItemFromObject(ent_equip, key);
-                      }
+                cJSON *ej = cem ? cJSON_GetObjectItem(cem, e->key) : NULL;
+                if (ej && cJSON_IsObject(ej)) {
+                    cJSON *ej_equip = cJSON_GetObjectItem(ej, "EquipIDs");
+                    int k;
+                    if (!ej_equip) { ej_equip = cJSON_CreateObject(); cJSON_AddItemToObject(ej, "EquipIDs", ej_equip); }
+                    for (k = 0; k < NUM_EQUIP_SLOTS; k++) {
+                        char key[8];
+                        snprintf(key, sizeof(key), "%d", k);
+                        if (rec && rec->equip[k] >= 0) {
+                            cJSON_SetInt(ej_equip, key, rec->equip[k]);
+                            e->equip[k] = rec->equip[k];
+                        } else {
+                            cJSON_DeleteItemFromObject(ej_equip, key);
+                            e->equip[k] = -1;
+                        }
                     }
                 }
             }
@@ -1508,6 +1710,7 @@ static void DoBatchMax(void)
         cJSON_SetNumber(cJSON_GetObjectItem(pfa, "Con"), 999);
         cJSON_SetNumber(cJSON_GetObjectItem(pfa, "MaxHp"), 9000);
         cJSON_SetNumber(cJSON_GetObjectItem(pfa, "MaxMp"), 900);
+        cJSON_SetNumber(cJSON_GetObjectItem(pfa, "MaxStamina"), 999);
         cJSON_SetNumber(cJSON_GetObjectItem(pfa, "PhysicalAttack"), 999);
         cJSON_SetNumber(cJSON_GetObjectItem(pfa, "MagicAttack"), 999);
         cJSON_SetNumber(cJSON_GetObjectItem(pfa, "Defense"), 999);
@@ -1519,6 +1722,8 @@ static void DoBatchMax(void)
         cJSON_SetNumber(cJSON_GetObjectItem(fa, "MaxHp"), 9999);
         cJSON_SetNumber(cJSON_GetObjectItem(fa, "Mp"), 999);
         cJSON_SetNumber(cJSON_GetObjectItem(fa, "MaxMp"), 999);
+        cJSON_SetNumber(cJSON_GetObjectItem(fa, "Stamina"), 999);
+        cJSON_SetNumber(cJSON_GetObjectItem(fa, "MaxStamina"), 999);
         {
             int k;
             const char *attr_keys[] = {"Str","Dex","Mind","Con","PhysicalAttack","MagicAttack","Defense","Speed"};
@@ -1549,22 +1754,18 @@ static LRESULT CALLBACK WndProc(HWND hwnd, UINT msg, WPARAM wp, LPARAM lp)
 {
     switch (msg) {
     case WM_CREATE: {
-        /* Top bar: Open button + path + char selector */
-        HWND hTopFrame = CreateWindowExA(0, "STATIC", "",
-            WS_CHILD | WS_VISIBLE, 0, 0, 0, 0,
-            hwnd, NULL, GetModuleHandle(NULL), NULL);
-
-        CreateButton(hTopFrame, ID_BTN_OPEN, "打开存档", 8, 8, 90, 26);
+        /* Top bar: Open button + path + char selector (directly on main window) */
+        CreateButton(hwnd, ID_BTN_OPEN, "打开存档", 8, 8, 90, 26);
         CreateWindowExA(0, "STATIC", "请先打开存档文件",
             WS_CHILD | WS_VISIBLE | SS_LEFT,
             105, 12, 200, 20,
-            hTopFrame, NULL, GetModuleHandle(NULL), NULL);
+            hwnd, NULL, GetModuleHandle(NULL), NULL);
 
-        CreateLabel(hTopFrame, "当前角色:", 320, 12, 60, 20);
+        CreateLabel(hwnd, "当前角色:", 320, 12, 60, 20);
         g_hwndCharCombo = CreateWindowExA(NULL, "COMBOBOX", "",
             WS_CHILD | WS_VISIBLE | CBS_DROPDOWN | CBS_AUTOHSCROLL | WS_VSCROLL,
             385, 8, 350, 200,
-            hTopFrame, (HMENU)(INT_PTR)ID_CHAR_COMBO, GetModuleHandle(NULL), NULL);
+            hwnd, (HMENU)(INT_PTR)ID_CHAR_COMBO, GetModuleHandle(NULL), NULL);
         SendMessage(g_hwndCharCombo, WM_SETFONT, (WPARAM)GetStockObject(DEFAULT_GUI_FONT), TRUE);
 
         /* Tab control */
@@ -1694,11 +1895,11 @@ static LRESULT CALLBACK WndProc(HWND hwnd, UINT msg, WPARAM wp, LPARAM lp)
             break;
 
         case ID_BTN_FULL_HEAL:
-            SetWindowTextA(g_edBat[0], GetWindowTextA(g_edBat[1], NULL, 0) ? "" : "9999");
-            /* Actually: set Hp = MaxHp */
+            /* Set Hp = MaxHp, Mp = MaxMp, Stamina = MaxStamina */
             { char buf[32]; GetWindowTextA(g_edBat[1], buf, sizeof(buf)); SetWindowTextA(g_edBat[0], buf); }
             { char buf[32]; GetWindowTextA(g_edBat[3], buf, sizeof(buf)); SetWindowTextA(g_edBat[2], buf); }
-            SetStatus("已满血满蓝", 0);
+            { char buf[32]; GetWindowTextA(g_edBat[18], buf, sizeof(buf)); SetWindowTextA(g_edBat[17], buf); }
+            SetStatus("已满血满蓝满气力", 0);
             break;
 
         case ID_BTN_MAX_BATTLE:
@@ -1709,6 +1910,7 @@ static LRESULT CALLBACK WndProc(HWND hwnd, UINT msg, WPARAM wp, LPARAM lp)
               for (i = 6; i <= 13; i++) SetWindowTextA(g_edBat[i], "999");
               SetWindowTextA(g_edBat[14], "6");
               SetWindowTextA(g_edBat[15], "100"); SetWindowTextA(g_edBat[16], "100");
+              SetWindowTextA(g_edBat[17], "999"); SetWindowTextA(g_edBat[18], "999");
               SetStatus("战场属性已MAX", 0);
             }
             break;

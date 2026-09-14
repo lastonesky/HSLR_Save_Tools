@@ -270,7 +270,7 @@ class HSLEditor:
                   ).grid(row=5, column=0, columnspan=8, sticky='w', pady=(2,2))
         perm_fields = [
             ("力量","Str"),("敏捷","Dex"),("智力","Mind"),("体质","Con"),
-            ("HP加成","MaxHp"),("MP加成","MaxMp"),
+            ("HP加成","MaxHp"),("MP加成","MaxMp"),("气力加成","MaxStamina"),
             ("物攻","PhysicalAttack"),("魔攻","MagicAttack"),
             ("防御","Defense"),("速度","Speed"),
             ("暴击率","CriticalRatio"),("闪避率","DodgeRatio"),
@@ -290,6 +290,7 @@ class HSLEditor:
                   ).grid(row=11, column=0, columnspan=8, sticky='w', pady=(2,2))
         fight_fields = [
             ("当前HP","Hp"),("最大HP","MaxHp"),("当前MP","Mp"),("最大MP","MaxMp"),
+            ("当前气力","Stamina"),("最大气力","MaxStamina"),
             ("力量","Str"),("敏捷","Dex"),("智力","Mind"),("体质","Con"),
             ("物攻","PhysicalAttack"),("魔攻","MagicAttack"),("防御","Defense"),
             ("速度","Speed"),("移动力","Move"),
@@ -310,6 +311,7 @@ class HSLEditor:
         self.battle_vars = {}
         fields = [
             ("当前HP","Hp"),("最大HP","MaxHp"),("当前MP","Mp"),("最大MP","MaxMp"),
+            ("当前气力","Stamina"),("最大气力","MaxStamina"),
             ("等级","Level"),("经验","Exp"),
             ("力量","Str"),("敏捷","Dex"),("智力","Mind"),("体质","Con"),
             ("物攻","PhysicalAttack"),("魔攻","MagicAttack"),("防御","Defense"),
@@ -323,26 +325,39 @@ class HSLEditor:
             ttk.Entry(parent, textvariable=v, width=10).grid(row=r, column=c+1, sticky='w', padx=4, pady=3)
             self.battle_vars[key] = v
 
+        # 角色死亡状态（仅战场有效）
+        dead_row = len(fields) // 3 + 1
+        self.is_dead_var = tk.BooleanVar(value=False)
+        ttk.Checkbutton(parent, text="已死亡 (IsDead)", variable=self.is_dead_var
+                        ).grid(row=dead_row, column=0, columnspan=2, sticky='w', padx=8, pady=3)
+        ttk.Label(parent,
+                  text=("⚠ 勾选=角色死亡，取消勾选=复活。仅战场存档有效。\n"
+                        "注意：已死亡的角色在游戏里可能不会显示名字。"),
+                  foreground='#b06000', wraplength=500
+                  ).grid(row=dead_row, column=2, columnspan=4, sticky='w', padx=4, pady=3)
+
         # 一键满血满蓝
         btn_frame = ttk.Frame(parent)
-        btn_frame.grid(row=len(fields)//3+1, column=0, columnspan=6, pady=4)
+        btn_frame.grid(row=dead_row + 1, column=0, columnspan=6, pady=4)
         ttk.Button(btn_frame, text="❤ 一键满血满蓝", command=self.full_heal).pack(side='left', padx=8)
         ttk.Button(btn_frame, text="⚡ 战场属性MAX(本战)", command=self.max_stats_battle).pack(side='left', padx=8)
         ttk.Button(btn_frame, text="🎯 Lv99 + 满经验", command=self.max_level).pack(side='left', padx=8)
         ttk.Label(parent, text="⚠ 战场属性仅当前战斗有效，下次进图会重算。\n永久修改请到「存档属性」页或用底部「全队满属性(持久)」按钮。",
                   foreground='#b06000', wraplength=680, justify='left'
-                  ).grid(row=len(fields)//3+2, column=0, columnspan=6, sticky='w', pady=(4,0))
+                  ).grid(row=dead_row+2, column=0, columnspan=6, sticky='w', pady=(4,0))
         # 正式版在非战斗状态保存的存档（stage=null）没有战场数据，这里给出显式提示
         self.battle_note_var = tk.StringVar(value="")
         ttk.Label(parent, textvariable=self.battle_note_var, foreground='red',
                   wraplength=680, justify='left'
-                  ).grid(row=len(fields)//3+3, column=0, columnspan=6, sticky='w', pady=(4,0))
+                  ).grid(row=dead_row+3, column=0, columnspan=6, sticky='w', pady=(4,0))
 
     def full_heal(self):
         if "MaxHp" in self.battle_vars:
             self.battle_vars["Hp"].set(self.battle_vars["MaxHp"].get())
         if "MaxMp" in self.battle_vars:
             self.battle_vars["Mp"].set(self.battle_vars["MaxMp"].get())
+        if "MaxStamina" in self.battle_vars:
+            self.battle_vars["Stamina"].set(self.battle_vars["MaxStamina"].get())
 
     def max_stats_battle(self):
         """战场页一键满属性（仅本战有效）"""
@@ -358,6 +373,9 @@ class HSLEditor:
         if "MaxMp" in self.battle_vars:
             self.battle_vars["MaxMp"].set("999")
             self.battle_vars["Mp"].set("999")
+        if "MaxStamina" in self.battle_vars:
+            self.battle_vars["MaxStamina"].set("999")
+            self.battle_vars["Stamina"].set("999")
 
     def max_level(self):
         if "Level" in self.battle_vars:
@@ -388,6 +406,7 @@ class HSLEditor:
                 rec_pfa[k] = 999
             rec_pfa['MaxHp'] = 9000
             rec_pfa['MaxMp'] = 900
+            rec_pfa['MaxStamina'] = 999
             for k in ["PhysicalAttack","MagicAttack","Defense","Speed"]:
                 rec_pfa[k] = 999
             rec_pfa['CriticalRatio'] = 100
@@ -396,6 +415,7 @@ class HSLEditor:
             rec_fa = rec.setdefault('FightAttr', {})
             rec_fa['Hp'] = 9999; rec_fa['MaxHp'] = 9999
             rec_fa['Mp'] = 999; rec_fa['MaxMp'] = 999
+            rec_fa['Stamina'] = 999; rec_fa['MaxStamina'] = 999
             for k in ["Str","Dex","Mind","Con","PhysicalAttack","MagicAttack","Defense","Speed"]:
                 rec_fa[k] = 999
             for k in ["CriticalRatio","DodgeRatio"]:
@@ -408,11 +428,14 @@ class HSLEditor:
             ent['Hp'] = 9999
             ent['MaxMp'] = 999
             ent['Mp'] = 999
+            ent['MaxStamina'] = 999
+            ent['Stamina'] = 999
             ent.setdefault('BaseAttr', {})['Hp'] = 999
             ent['BaseAttr']['Mp'] = 99
             efa = ent.setdefault('FightAttr', {})
             efa['Hp'] = 9999; efa['MaxHp'] = 9999
             efa['Mp'] = 999; efa['MaxMp'] = 999
+            efa['Stamina'] = 999; efa['MaxStamina'] = 999
             for k in ["Str","Dex","Mind","Con","PhysicalAttack","MagicAttack","Defense","Speed"]:
                 efa[k] = 999
             for k in ["CriticalRatio","DodgeRatio"]:
@@ -1133,13 +1156,13 @@ class HSLEditor:
                 ba[key] = int(self.record_vars[f"BaseAttr.{key}"].get() or 0)
             # PermanentFightAttr（持久层，不会被重算覆盖）
             pfa = rec.setdefault('PermanentFightAttr', {})
-            for key in ["Str","Dex","Mind","Con","MaxHp","MaxMp",
+            for key in ["Str","Dex","Mind","Con","MaxHp","MaxMp","MaxStamina",
                          "PhysicalAttack","MagicAttack","Defense","Speed",
                          "CriticalRatio","DodgeRatio"]:
                 pfa[key] = int(self.record_vars[f"PermAttr.{key}"].get() or 0)
             # FightAttr（只读参考，写回仅供参考，下次加载会被重算）
             fa = rec.setdefault('FightAttr', {})
-            for key in ["Hp","MaxHp","Mp","MaxMp","Str","Dex","Mind","Con",
+            for key in ["Hp","MaxHp","Mp","MaxMp","Stamina","MaxStamina","Str","Dex","Mind","Con",
                          "PhysicalAttack","MagicAttack","Defense","Speed","Move",
                          "CriticalRatio","DodgeRatio","FireRes","WaterRes","AirRes","EarthRes","MindRes"]:
                 fa[key] = int(self.record_vars[f"FightAttr.{key}"].get() or 0)
@@ -1152,18 +1175,23 @@ class HSLEditor:
             new_maxhp = int(self.battle_vars["MaxHp"].get() or 0)
             new_mp = int(self.battle_vars["Mp"].get() or 0)
             new_maxmp = int(self.battle_vars["MaxMp"].get() or 0)
+            new_stamina = int(self.battle_vars["Stamina"].get() or 0)
+            new_maxstamina = int(self.battle_vars["MaxStamina"].get() or 0)
             ent.setdefault('BaseAttr', {})['Hp'] = new_hp
             ent['Hp'] = new_hp
             ent['MaxHp'] = new_maxhp
             ent.setdefault('BaseAttr', {})['Mp'] = new_mp
             ent['Mp'] = new_mp
             ent['MaxMp'] = new_maxmp
+            ent['Stamina'] = new_stamina
+            ent['MaxStamina'] = new_maxstamina
             ent['Level'] = int(self.battle_vars["Level"].get() or 0)
             ent['Exp'] = int(self.battle_vars["Exp"].get() or 0)
+            ent['IsDead'] = self.is_dead_var.get()
             efa = ent.setdefault('FightAttr', {})
             efa['Hp'] = new_hp
             efa['MaxHp'] = new_maxhp
-            for key in ["Hp","MaxHp","Mp","MaxMp","Str","Dex","Mind","Con","PhysicalAttack","MagicAttack","Defense","Speed","Move","CriticalRatio","DodgeRatio"]:
+            for key in ["Hp","MaxHp","Mp","MaxMp","Stamina","MaxStamina","Str","Dex","Mind","Con","PhysicalAttack","MagicAttack","Defense","Speed","Move","CriticalRatio","DodgeRatio"]:
                 efa[key] = int(self.battle_vars[key].get() or 0)
 
             # 同步战场数据到存档记录（HP/MP/BaseAttr）
@@ -1174,6 +1202,8 @@ class HSLEditor:
                 rec['FightAttr']['Mp'] = new_mp
                 rec['FightAttr']['MaxMp'] = new_maxmp
                 rec['BaseAttr']['Mp'] = new_mp
+                rec.setdefault('FightAttr', {})['Stamina'] = new_stamina
+                rec['FightAttr']['MaxStamina'] = new_maxstamina
 
         # 装备 / 背包 / 技能 / 仓库
         self._apply_equip_items_to_data()
@@ -1279,13 +1309,13 @@ class HSLEditor:
                 self.record_vars[f"BaseAttr.{key}"].set(str(ba.get(key, 0)))
             # PermanentFightAttr（永久加成）
             pfa = self.record.get('PermanentFightAttr', {})
-            for key in ["Str","Dex","Mind","Con","MaxHp","MaxMp",
+            for key in ["Str","Dex","Mind","Con","MaxHp","MaxMp","MaxStamina",
                          "PhysicalAttack","MagicAttack","Defense","Speed",
                          "CriticalRatio","DodgeRatio"]:
                 self.record_vars[f"PermAttr.{key}"].set(str(pfa.get(key, 0)))
             # FightAttr（只读参考）
             fa = self.record.get('FightAttr', {})
-            for key in ["Hp","MaxHp","Mp","MaxMp","Str","Dex","Mind","Con",
+            for key in ["Hp","MaxHp","Mp","MaxMp","Stamina","MaxStamina","Str","Dex","Mind","Con",
                          "PhysicalAttack","MagicAttack","Defense","Speed","Move",
                          "CriticalRatio","DodgeRatio","FireRes","WaterRes","AirRes","EarthRes","MindRes"]:
                 self.record_vars[f"FightAttr.{key}"].set(str(fa.get(key, 0)))
@@ -1302,14 +1332,16 @@ class HSLEditor:
             ba = self.entity.get('BaseAttr', {})
             self.battle_vars["Hp"].set(str(ba.get('Hp', 0)))
             self.battle_vars["MaxHp"].set(str(self.entity.get('MaxHp', 0)))
-            for key in ["Mp","MaxMp","Level","Exp"]:
+            for key in ["Mp","MaxMp","Stamina","MaxStamina","Level","Exp"]:
                 self.battle_vars[key].set(str(self.entity.get(key, 0)))
             efa = self.entity.get('FightAttr', {})
             for key in ["Str","Dex","Mind","Con","PhysicalAttack","MagicAttack","Defense","Speed","Move","CriticalRatio","DodgeRatio"]:
                 self.battle_vars[key].set(str(efa.get(key, 0)))
+            self.is_dead_var.set(bool(self.entity.get('IsDead', False)))
         else:
             for k, v in self.battle_vars.items():
                 v.set("0")
+            self.is_dead_var.set(False)
 
         # 装备 / 背包 / 技能 / 仓库
         self._load_equip_items_from_data()

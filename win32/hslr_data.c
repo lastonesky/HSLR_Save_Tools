@@ -332,16 +332,7 @@ void item_title(EditorState *ed, int id, char *buf, int buf_size)
  * Character data extraction from parsed JSON
  * ============================================================ */
 
-/* Helper: get cJSON item and return its int value, or default */
-static int cJSON_GetInt(cJSON *obj, const char *key, int def)
-{
-    cJSON *item = cJSON_GetObjectItem(obj, key);
-    if (!item) return def;
-    if (cJSON_IsNumber(item)) return item->valueint;
-    if (cJSON_IsString(item)) return atoi(item->valuestring);
-    return def;
-}
-
+/* Helper: get cJSON string value */
 static const char *cJSON_GetStr(cJSON *obj, const char *key, const char *def)
 {
     cJSON *item = cJSON_GetObjectItem(obj, key);
@@ -372,6 +363,7 @@ static void parse_perm_attr(cJSON *obj, PermFightAttr *pfa)
     pfa->Con  = cJSON_GetInt(obj, "Con", 0);
     pfa->MaxHp = cJSON_GetInt(obj, "MaxHp", 0);
     pfa->MaxMp = cJSON_GetInt(obj, "MaxMp", 0);
+    pfa->MaxStamina = cJSON_GetInt(obj, "MaxStamina", 0);
     pfa->PhysicalAttack = cJSON_GetInt(obj, "PhysicalAttack", 0);
     pfa->MagicAttack   = cJSON_GetInt(obj, "MagicAttack", 0);
     pfa->Defense       = cJSON_GetInt(obj, "Defense", 0);
@@ -388,6 +380,8 @@ static void parse_fight_attr(cJSON *obj, FightAttr *fa)
     fa->MaxHp = cJSON_GetInt(obj, "MaxHp", 0);
     fa->Mp   = cJSON_GetInt(obj, "Mp", 0);
     fa->MaxMp = cJSON_GetInt(obj, "MaxMp", 0);
+    fa->Stamina = cJSON_GetInt(obj, "Stamina", 0);
+    fa->MaxStamina = cJSON_GetInt(obj, "MaxStamina", 0);
     fa->Str  = cJSON_GetInt(obj, "Str", 0);
     fa->Dex  = cJSON_GetInt(obj, "Dex", 0);
     fa->Mind = cJSON_GetInt(obj, "Mind", 0);
@@ -537,6 +531,9 @@ static void extract_entity(EditorState *ed, cJSON *ent_json, const char *key)
     ent->max_hp = cJSON_GetInt(ent_json, "MaxHp", 0);
     ent->mp     = cJSON_GetInt(ent_json, "Mp", 0);
     ent->max_mp = cJSON_GetInt(ent_json, "MaxMp", 0);
+    ent->stamina = cJSON_GetInt(ent_json, "Stamina", 0);
+    ent->max_stamina = cJSON_GetInt(ent_json, "MaxStamina", 0);
+    ent->is_dead = cJSON_GetInt(ent_json, "IsDead", 0);
 
     ba_obj = cJSON_GetObjectItem(ent_json, "BaseAttr");
     fa_obj = cJSON_GetObjectItem(ent_json, "FightAttr");
@@ -642,18 +639,6 @@ void data_extract_characters(EditorState *ed)
  * Sync character data back to cJSON (for saving)
  * ============================================================ */
 
-/* Helper: set cJSON int value */
-static void cJSON_SetInt(cJSON *obj, const char *key, int val)
-{
-    cJSON *item = cJSON_GetObjectItem(obj, key);
-    if (item && cJSON_IsNumber(item)) {
-        item->valueint = val;
-        item->valuedouble = (double)val;
-    } else {
-        cJSON_AddNumberToObject(obj, key, val);
-    }
-}
-
 /* Helper: set cJSON string value */
 static void cJSON_SetStr(cJSON *obj, const char *key, const char *val)
 {
@@ -698,6 +683,7 @@ static void sync_record_to_json(EditorState *ed, CharRecord *rec, cJSON *rec_jso
     cJSON_SetInt(pfa_obj, "Con", rec->perm.Con);
     cJSON_SetInt(pfa_obj, "MaxHp", rec->perm.MaxHp);
     cJSON_SetInt(pfa_obj, "MaxMp", rec->perm.MaxMp);
+    cJSON_SetInt(pfa_obj, "MaxStamina", rec->perm.MaxStamina);
     cJSON_SetInt(pfa_obj, "PhysicalAttack", rec->perm.PhysicalAttack);
     cJSON_SetInt(pfa_obj, "MagicAttack", rec->perm.MagicAttack);
     cJSON_SetInt(pfa_obj, "Defense", rec->perm.Defense);
@@ -712,6 +698,8 @@ static void sync_record_to_json(EditorState *ed, CharRecord *rec, cJSON *rec_jso
     cJSON_SetInt(fa_obj, "MaxHp", rec->fight.MaxHp);
     cJSON_SetInt(fa_obj, "Mp", rec->fight.Mp);
     cJSON_SetInt(fa_obj, "MaxMp", rec->fight.MaxMp);
+    cJSON_SetInt(fa_obj, "Stamina", rec->fight.Stamina);
+    cJSON_SetInt(fa_obj, "MaxStamina", rec->fight.MaxStamina);
     cJSON_SetInt(fa_obj, "Str", rec->fight.Str);
     cJSON_SetInt(fa_obj, "Dex", rec->fight.Dex);
     cJSON_SetInt(fa_obj, "Mind", rec->fight.Mind);
@@ -818,6 +806,9 @@ void data_sync_to_json(EditorState *ed)
             cJSON_SetInt(ent_json, "MaxHp", ent->max_hp);
             cJSON_SetInt(ent_json, "Mp", ent->mp);
             cJSON_SetInt(ent_json, "MaxMp", ent->max_mp);
+            cJSON_SetInt(ent_json, "Stamina", ent->stamina);
+            cJSON_SetInt(ent_json, "MaxStamina", ent->max_stamina);
+            cJSON_SetInt(ent_json, "IsDead", ent->is_dead);
 
             /* Equipment, bag, skills — sync to entity JSON too */
             {

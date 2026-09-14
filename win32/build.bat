@@ -23,18 +23,24 @@ if errorlevel 1 (
     exit /b 1
 )
 
+REM Generate import libraries from system DLLs if missing
+if not exist comctl32.def (
+    echo Generating import libraries from system DLLs...
+    %TCC% -impdef "%SystemRoot%\System32\comctl32.dll" -o comctl32.def
+    %TCC% -impdef "%SystemRoot%\System32\comdlg32.dll" -o comdlg32.def
+    %TCC% -impdef "%SystemRoot%\System32\shell32.dll" -o shell32.def
+)
+
 echo Compiling HSLR Save Editor (TCC)...
 echo.
 
-REM Compile: all .c files → hslr_editor.exe
+REM Compile: all .c files + .def import libs -> hslr_editor.exe
 REM TCC compiles multiple source files in one command
 %TCC% -o hslr_editor.exe ^
     -I. ^
-    -lcomctl32 ^
-    -lcomdlg32 ^
-    -luser32 ^
-    -lgdi32 ^
-    -lshell32 ^
+    comctl32.def ^
+    comdlg32.def ^
+    shell32.def ^
     cJSON.c ^
     hslr_save.c ^
     hslr_data.c ^
