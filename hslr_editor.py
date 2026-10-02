@@ -48,8 +48,22 @@ def encrypt_file(filepath, obj):
 # EEquipSlot: 0=Head 1=Body 2=Feet 3=Weapon 4=Amulet1 5=Amulet2
 EQUIP_SLOTS = [(0, "头盔"), (1, "防具"), (2, "鞋子"), (3, "武器"), (4, "饰品1"), (5, "饰品2")]
 SLOT_ID_BY_NAME = {'Head': 0, 'Body': 1, 'Feet': 2, 'Weapon': 3, 'Amulet1': 4, 'Amulet2': 5}
+CHARACTER_NAMES = {
+    100: "雷欧纳德", 200: "琥", 300: "缇娜", 400: "汉克斯", 500: "雪拉",
+    600: "雷特", 700: "嚎", 800: "咕噜", 900: "克罗蒂",
+}
 DATA_DIR = os.path.join(os.path.dirname(os.path.abspath(__file__)), 'data')
 ITEM_TABLE = {}       # {item_id: dict}；为空表示没找到数据表（退化为纯 ID 输入）
+
+def character_name(pid, record=None):
+    """返回角色名称；GDCharRecordInfo 没有 Name 时按基础角色 ID 补全。"""
+    if isinstance(record, dict) and record.get('Name'):
+        return str(record['Name'])
+    try:
+        numeric_pid = int(pid)
+    except (TypeError, ValueError):
+        return f"角色{pid}"
+    return CHARACTER_NAMES.get(numeric_pid, f"角色{numeric_pid}")
 
 def load_item_table():
     """读取 data/items.csv（由游戏资源导出）；不存在时返回空表"""
@@ -139,7 +153,7 @@ from tkinter import ttk, messagebox, filedialog, simpledialog
 class HSLEditor:
     def __init__(self):
         self.root = tk.Tk()
-        self.root.title("幻世录重制版 存档编辑器 v3 (属性/装备/物品)")
+        self.root.title("幻世录重制版 存档编辑器 v4 (属性/装备/物品/集气)")
         self.root.geometry("800x900")
         self.root.resizable(False, False)
 
@@ -228,6 +242,7 @@ class HSLEditor:
         ttk.Button(bot, text="💾 保存存档", command=self.save_file).pack(side='right')
         ttk.Button(bot, text="🔄 刷新显示", command=self.refresh_ui).pack(side='right', padx=8)
         ttk.Button(bot, text="⚡ 全队满属性(持久)", command=self.batch_max_all).pack(side='left', padx=8)
+        ttk.Button(bot, text="全角色一键满气", command=self.batch_full_stamina).pack(side='left', padx=8)
 
         # 底部状态栏
         self.status_frame = ttk.Frame(self.root)
@@ -313,6 +328,7 @@ class HSLEditor:
         self.battle_vars = {}
         fields = [
             ("当前HP","Hp"),("最大HP","MaxHp"),("当前MP","Mp"),("最大MP","MaxMp"),
+            ("当前集气","Stamina"),("集气上限","MaxStamina"),
             ("等级","Level"),("经验","Exp"),
             ("力量","Str"),("敏捷","Dex"),("智力","Mind"),("体质","Con"),
             ("物攻","PhysicalAttack"),("魔攻","MagicAttack"),("防御","Defense"),
@@ -330,6 +346,7 @@ class HSLEditor:
         btn_frame = ttk.Frame(parent)
         btn_frame.grid(row=len(fields)//3+1, column=0, columnspan=6, pady=4)
         ttk.Button(btn_frame, text="❤ 一键满血满蓝", command=self.full_heal).pack(side='left', padx=8)
+        ttk.Button(btn_frame, text="一键满气", command=self.full_stamina).pack(side='left', padx=8)
         ttk.Button(btn_frame, text="⚡ 战场属性MAX(本战)", command=self.max_stats_battle).pack(side='left', padx=8)
         ttk.Button(btn_frame, text="🎯 Lv99 + 满经验", command=self.max_level).pack(side='left', padx=8)
         ttk.Label(parent, text="⚠ 战场属性仅当前战斗有效，下次进图会重算。\n永久修改请到「存档属性」页或用底部「全队满属性(持久)」按钮。",
@@ -346,6 +363,21 @@ class HSLEditor:
             self.battle_vars["Hp"].set(self.battle_vars["MaxHp"].get())
         if "MaxMp" in self.battle_vars:
             self.battle_vars["Mp"].set(self.battle_vars["MaxMp"].get())
+
+    def full_stamina(self):
+        """将当前战场角色的集气填充到上限。"""
+        if self.entity is None:
+            self._show_status("当前存档或角色没有战场集气数据", is_error=True)
+            return
+        try:
+            max_stamina = int(self.battle_vars["MaxStamina"].get() or 9999)
+        except ValueError:
+            max_stamina = 9999
+        if max_stamina <= 0:
+            max_stamina = 9999
+        self.battle_vars["MaxStamina"].set(str(max_stamina))
+        self.battle_vars["Stamina"].set(str(max_stamina))
+        self._show_status("✓ 当前角色已满气（记得点「保存存档」）")
 
     def max_stats_battle(self):
         """战场页一键满属性（仅本战有效）"""
@@ -367,6 +399,36 @@ class HSLEditor:
             self.battle_vars["Level"].set("99")
         if "Exp" in self.battle_vars:
             self.battle_vars["Exp"].set("99999")
+
+    def batch_full_stamina(self):
+        """将战场中全部我方角色的当前集气填充到各自上限。"""
+        if self.stage is None or not self.all_stage_entities:
+            self._show_status("该存档没有战场数据，无法修改当前集气", is_error=True)
+            return
+
+        self._apply_current_to_data()
+        count = 0
+        for ekey, ent in self.all_stage_entities.items():
+            if ent.get('Camp') != 2:
+                continue
+            try:
+                max_stamina = int(ent.get('MaxStamina', 9999))
+            except (TypeError, ValueError):
+                max_stamina = 9999
+            if max_stamina <= 0:
+                max_stamina = 9999
+            ent['MaxStamina'] = max_stamina
+            ent['Stamina'] = max_stamina
+            pid = ent.get('PlayerId')
+            if pid in self.all_entities:
+                self.all_entities[pid] = (ekey, ent)
+            count += 1
+
+        if count == 0:
+            self._show_status("战场中没有可修改的我方角色", is_error=True)
+            return
+        self.refresh_ui()
+        self._show_status(f"✓ 已将 {count} 个我方角色设为满气（记得点「保存存档」）")
 
     def batch_max_all(self):
         """批量拉满全队血/MP与属性加成（写持久层 GDCharRecordInfo，不改等级/经验）"""
@@ -984,6 +1046,20 @@ class HSLEditor:
             self._set_current_char(pid=value)
         self.refresh_ui()
 
+    def _record_pid_for_entity(self, pid):
+        """返回战场实体对应的持久记录 ID；转职 ID 101/102 等归到基础 ID 100。"""
+        try:
+            numeric_pid = int(pid)
+        except (TypeError, ValueError):
+            return None
+        if numeric_pid in self.all_records:
+            return numeric_pid
+        if 100 <= numeric_pid < 1000:
+            family_pid = (numeric_pid // 100) * 100
+            if family_pid in self.all_records:
+                return family_pid
+        return None
+
     def _set_current_char(self, pid=None, entity_key=None):
         """设置当前编辑角色"""
         self.current_pid = pid
@@ -999,12 +1075,15 @@ class HSLEditor:
                     self.current_pid = int(ent_pid) if ent_pid is not None else None
                 except (TypeError, ValueError):
                     self.current_pid = None
-                self.record = self.all_records.get(self.current_pid) if self.current_pid is not None else None
+                record_pid = self._record_pid_for_entity(self.current_pid)
+                self.record = self.all_records.get(record_pid) if record_pid is not None else None
                 self.current_target = ('entity', entity_key)
         elif pid is not None:
             ent = self.all_entities.get(pid)
             if ent:
                 self.entity_key, self.entity = ent
+                record_pid = self._record_pid_for_entity(pid)
+                self.record = self.all_records.get(record_pid) if record_pid is not None else None
                 self.current_target = ('entity', self.entity_key)
             else:
                 self.current_target = ('record', pid)
@@ -1031,18 +1110,22 @@ class HSLEditor:
         entries = []
         self.char_choice_map = {}
 
+        linked_record_pids = set()
         for pid in sorted(self.all_entities.keys()):
             ent = self.all_entities[pid][1]
-            name = ent.get('Name') or f'角色{pid}'
+            name = ent.get('Name') or character_name(pid)
             lv = ent.get('Level', '?')
             text = self._make_unique_char_entry(entries, f"{name} Lv.{lv} (我方 PID:{pid})")
             entries.append(text)
             self.char_choice_map[text] = ('entity', self.all_entities[pid][0])
-        # 也加上只有 record 没有 entity 的角色
+            record_pid = self._record_pid_for_entity(pid)
+            if record_pid is not None:
+                linked_record_pids.add(record_pid)
+        # 也加上当前战场没有对应实体的角色记录
         for pid in sorted(self.all_records.keys()):
-            if pid not in self.all_entities:
+            if pid not in linked_record_pids:
                 rec = self.all_records[pid]
-                name = rec.get('Name') or f'角色{pid}'
+                name = character_name(pid, rec)
                 lv = rec.get('Level', '?')
                 text = self._make_unique_char_entry(entries, f"{name} Lv.{lv} (我方 PID:{pid}) [仅存档]")
                 entries.append(text)
@@ -1091,7 +1174,7 @@ class HSLEditor:
                 ba = rec.get('BaseAttr', {})
                 fa = rec.get('FightAttr', {})
                 self.tree.insert('', 'end', iid=f"rec:{pid}", values=(
-                    pid, rec.get('Name') or f'角色{pid}', rec.get('Level', '?'),
+                    pid, character_name(pid, rec), rec.get('Level', '?'),
                     fa.get('Hp', ba.get('Hp', '?')), fa.get('MaxHp', '?'),
                     fa.get('PhysicalAttack', '?'), fa.get('MagicAttack', '?'),
                     fa.get('Defense', '?'), "我方"))
@@ -1196,10 +1279,8 @@ class HSLEditor:
         """将当前角色的 UI 值写回到内存数据结构（不触发保存）"""
         if not self.save_data or (self.current_pid is None and self.entity is None):
             return
-        pid = self.current_pid
-
         # 基础信息 + 存档属性 -> record
-        rec = self.all_records.get(pid)
+        rec = self.record
         if rec:
             rec['Level'] = int(self.basic_vars["Level"].get() or 0)
             rec['Exp'] = int(self.basic_vars["Exp"].get() or 0)
@@ -1227,12 +1308,16 @@ class HSLEditor:
             new_maxhp = int(self.battle_vars["MaxHp"].get() or 0)
             new_mp = int(self.battle_vars["Mp"].get() or 0)
             new_maxmp = int(self.battle_vars["MaxMp"].get() or 0)
+            new_stamina = int(self.battle_vars["Stamina"].get() or 0)
+            new_maxstamina = int(self.battle_vars["MaxStamina"].get() or 0)
             ent.setdefault('BaseAttr', {})['Hp'] = new_hp
             ent['Hp'] = new_hp
             ent['MaxHp'] = new_maxhp
             ent.setdefault('BaseAttr', {})['Mp'] = new_mp
             ent['Mp'] = new_mp
             ent['MaxMp'] = new_maxmp
+            ent['Stamina'] = new_stamina
+            ent['MaxStamina'] = new_maxstamina
             ent['Level'] = int(self.battle_vars["Level"].get() or 0)
             ent['Exp'] = int(self.battle_vars["Exp"].get() or 0)
             efa = ent.setdefault('FightAttr', {})
@@ -1257,7 +1342,6 @@ class HSLEditor:
         """把装备/物品/技能页的 UI 写回内存（持久层 record 与战场实体都写；仓库写 gplay）"""
         if not self.save_data or (self.current_pid is None and self.entity is None):
             return
-        pid = self.current_pid
         equips = {str(slot): iid for slot, iid in self._current_equips_from_ui().items()}
         bag = list(self.bag_items)
 
@@ -1271,7 +1355,7 @@ class HSLEditor:
         magic = [int(x.strip()) for x in self.magic_skill_var.get().split(',') if x.strip().isdigit()]
         sp = [int(x.strip()) for x in self.sp_skill_var.get().split(',') if x.strip().isdigit()]
 
-        rec = self.all_records.get(pid)
+        rec = self.record
         if rec is not None:
             rec['EquipIDs'] = copy.deepcopy(equips)
             rec['ItemIDs'] = list(bag)
@@ -1379,7 +1463,7 @@ class HSLEditor:
             ba = self.entity.get('BaseAttr', {})
             self.battle_vars["Hp"].set(str(ba.get('Hp', 0)))
             self.battle_vars["MaxHp"].set(str(self.entity.get('MaxHp', 0)))
-            for key in ["Mp","MaxMp","Level","Exp"]:
+            for key in ["Mp","MaxMp","Stamina","MaxStamina","Level","Exp"]:
                 self.battle_vars[key].set(str(self.entity.get(key, 0)))
             efa = self.entity.get('FightAttr', {})
             for key in ["Str","Dex","Mind","Con","PhysicalAttack","MagicAttack","Defense","Speed","Move","CriticalRatio","DodgeRatio"]:
