@@ -153,7 +153,7 @@ from tkinter import ttk, messagebox, filedialog, simpledialog
 class HSLEditor:
     def __init__(self):
         self.root = tk.Tk()
-        self.root.title("幻世录重制版 存档编辑器 v4 (属性/装备/物品/集气)")
+        self.root.title("幻世录重制版 存档编辑器 v5 (加点/装备/物品/集气/周目)")
         self.root.geometry("800x900")
         self.root.resizable(False, False)
 
@@ -241,7 +241,6 @@ class HSLEditor:
         bot.pack(fill='x')
         ttk.Button(bot, text="💾 保存存档", command=self.save_file).pack(side='right')
         ttk.Button(bot, text="🔄 刷新显示", command=self.refresh_ui).pack(side='right', padx=8)
-        ttk.Button(bot, text="⚡ 全队满属性(持久)", command=self.batch_max_all).pack(side='left', padx=8)
         ttk.Button(bot, text="全角色一键满气", command=self.batch_full_stamina).pack(side='left', padx=8)
 
         # 底部状态栏
@@ -255,36 +254,40 @@ class HSLEditor:
     def _build_basic(self, parent):
         self.basic_vars = {}
         fields = [
-            ("等级", "Level"), ("经验", "Exp"),
+            ("等级", "Level"), ("经验", "Exp"), ("周目编号", "GameRun"),
         ]
         for i, (label, key) in enumerate(fields):
             ttk.Label(parent, text=label + ":").grid(row=i//2, column=(i%2)*2, sticky='e', padx=4, pady=3)
             v = tk.StringVar()
             ttk.Entry(parent, textvariable=v, width=12).grid(row=i//2, column=(i%2)*2+1, sticky='w', padx=4, pady=3)
             self.basic_vars[key] = v
+        ttk.Label(parent, text="周目编号会同步到 savinfo.txt；它不会自动生成新周目的继承快照。",
+                  foreground='#b06000').grid(row=2, column=0, columnspan=4, sticky='w', pady=(8, 0))
 
     # ---------- 存档属性 ----------
     def _build_record(self, parent):
         self.record_vars = {}
 
         # 说明标签
-        note = ttk.Label(parent, text="💡 永久加成和基础属性会被保留；战斗属性每次加载自动重算",
+        note = ttk.Label(parent,
+                         text="每次升级分配的 5 点会直接累计到 BaseAttr 的力量/敏捷/智力/体质；其他战斗数值均由游戏换算，只读显示。",
                          foreground='blue', wraplength=700)
         note.grid(row=0, column=0, columnspan=8, sticky='w', pady=(0,4))
 
-        # --- BaseAttr（基础属性点，永久生效）---
-        ttk.Label(parent, text="基础属性 (BaseAttr) ★核心★", font=('', 10, 'bold')
+        # --- BaseAttr（升级加点累计结果，永久生效）---
+        ttk.Label(parent, text="累计加点结果 (BaseAttr) ★可修改★", font=('', 10, 'bold')
                   ).grid(row=1, column=0, columnspan=8, sticky='w', pady=(2,2))
-        base_fields = [("力量","Str"),("敏捷","Dex"),("智力","Mind"),("体质","Con"),("基础HP","Hp"),("基础MP","Mp")]
+        base_fields = [("力量总点数","Str"),("敏捷总点数","Dex"),("智力总点数","Mind"),("体质总点数","Con")]
         for i, (label, key) in enumerate(base_fields):
-            ttk.Label(parent, text=label+":").grid(row=2+i//3, column=(i%3)*2, sticky='e', padx=4, pady=2)
+            ttk.Label(parent, text=label+":").grid(row=2+i//4, column=(i%4)*2, sticky='e', padx=3, pady=2)
             v = tk.StringVar()
-            ttk.Entry(parent, textvariable=v, width=8).grid(row=2+i//3, column=(i%3)*2+1, sticky='w', padx=4, pady=2)
+            ttk.Entry(parent, textvariable=v, width=7).grid(row=2+i//4, column=(i%4)*2+1, sticky='w', padx=3, pady=2)
             self.record_vars[f"BaseAttr.{key}"] = v
 
-        # --- PermanentFightAttr（永久加成，永久生效）---
+        # --- PermanentFightAttr（系统/道具永久加成，只读）---
         ttk.Separator(parent, orient='horizontal').grid(row=4, column=0, columnspan=8, sticky='ew', pady=4)
-        ttk.Label(parent, text="永久加成 (PermanentFightAttr) ★核心★", font=('', 10, 'bold')
+        ttk.Label(parent, text="永久加成 (PermanentFightAttr)  [系统/道具数据 · 只读参考]",
+                  font=('', 10, 'bold'), foreground='gray'
                   ).grid(row=5, column=0, columnspan=8, sticky='w', pady=(2,2))
         perm_fields = [
             ("力量","Str"),("敏捷","Dex"),("智力","Mind"),("体质","Con"),
@@ -298,7 +301,8 @@ class HSLEditor:
             c = (i % 4) * 2
             ttk.Label(parent, text=label+":").grid(row=r, column=c, sticky='e', padx=3, pady=2)
             v = tk.StringVar()
-            ttk.Entry(parent, textvariable=v, width=7).grid(row=r, column=c+1, sticky='w', padx=3, pady=2)
+            e = ttk.Entry(parent, textvariable=v, width=7, state='readonly', style='Readonly.TEntry')
+            e.grid(row=r, column=c+1, sticky='w', padx=3, pady=2)
             self.record_vars[f"PermAttr.{key}"] = v
 
         # --- FightAttr（战斗属性，自动计算，仅供参考）---
@@ -335,21 +339,23 @@ class HSLEditor:
             ("速度","Speed"),("移动力","Move"),
             ("暴击率","CriticalRatio"),("闪避率","DodgeRatio"),
         ]
+        editable_fields = {"Hp", "Mp", "Stamina"}
         for i, (label, key) in enumerate(fields):
             r, c = i // 3, (i % 3) * 2
             ttk.Label(parent, text=label+":").grid(row=r, column=c, sticky='e', padx=4, pady=3)
             v = tk.StringVar()
-            ttk.Entry(parent, textvariable=v, width=10).grid(row=r, column=c+1, sticky='w', padx=4, pady=3)
+            state = 'normal' if key in editable_fields else 'readonly'
+            style = 'TEntry' if key in editable_fields else 'Readonly.TEntry'
+            ttk.Entry(parent, textvariable=v, width=10, state=state, style=style).grid(
+                row=r, column=c+1, sticky='w', padx=4, pady=3)
             self.battle_vars[key] = v
 
-        # 一键满血满蓝
+        # 当前资源快捷操作
         btn_frame = ttk.Frame(parent)
         btn_frame.grid(row=len(fields)//3+1, column=0, columnspan=6, pady=4)
         ttk.Button(btn_frame, text="❤ 一键满血满蓝", command=self.full_heal).pack(side='left', padx=8)
         ttk.Button(btn_frame, text="一键满气", command=self.full_stamina).pack(side='left', padx=8)
-        ttk.Button(btn_frame, text="⚡ 战场属性MAX(本战)", command=self.max_stats_battle).pack(side='left', padx=8)
-        ttk.Button(btn_frame, text="🎯 Lv99 + 满经验", command=self.max_level).pack(side='left', padx=8)
-        ttk.Label(parent, text="⚠ 战场属性仅当前战斗有效，下次进图会重算。\n永久修改请到「存档属性」页或用底部「全队满属性(持久)」按钮。",
+        ttk.Label(parent, text="战场中的力量、物攻、防御、速度等为游戏换算结果，仅供查看。\n永久调整请在「存档属性」页修改四项累计加点。",
                   foreground='#b06000', wraplength=680, justify='left'
                   ).grid(row=len(fields)//3+2, column=0, columnspan=6, sticky='w', pady=(4,0))
         # 正式版在非战斗状态保存的存档（stage=null）没有战场数据，这里给出显式提示
@@ -378,27 +384,6 @@ class HSLEditor:
         self.battle_vars["MaxStamina"].set(str(max_stamina))
         self.battle_vars["Stamina"].set(str(max_stamina))
         self._show_status("✓ 当前角色已满气（记得点「保存存档」）")
-
-    def max_stats_battle(self):
-        """战场页一键满属性（仅本战有效）"""
-        for k in ["Str","Dex","Mind","Con","PhysicalAttack","MagicAttack","Defense","Speed"]:
-            if k in self.battle_vars:
-                self.battle_vars[k].set("999")
-        for k in ["CriticalRatio","DodgeRatio"]:
-            if k in self.battle_vars:
-                self.battle_vars[k].set("100")
-        if "MaxHp" in self.battle_vars:
-            self.battle_vars["MaxHp"].set("9999")
-            self.battle_vars["Hp"].set("9999")
-        if "MaxMp" in self.battle_vars:
-            self.battle_vars["MaxMp"].set("999")
-            self.battle_vars["Mp"].set("999")
-
-    def max_level(self):
-        if "Level" in self.battle_vars:
-            self.battle_vars["Level"].set("99")
-        if "Exp" in self.battle_vars:
-            self.battle_vars["Exp"].set("99999")
 
     def batch_full_stamina(self):
         """将战场中全部我方角色的当前集气填充到各自上限。"""
@@ -429,65 +414,6 @@ class HSLEditor:
             return
         self.refresh_ui()
         self._show_status(f"✓ 已将 {count} 个我方角色设为满气（记得点「保存存档」）")
-
-    def batch_max_all(self):
-        """批量拉满全队血/MP与属性加成（写持久层 GDCharRecordInfo，不改等级/经验）"""
-        if not self.all_records and not self.all_entities:
-            self._show_status("没有可修改的角色", is_error=True)
-            return
-        # 先把当前角色 UI 数据写回
-        self._apply_current_to_data()
-
-        # ---- 持久层：GDCharRecordInfo（每个角色都有，非战斗存档同样有效）----
-        # 只拉满血/MP与属性加成，Level / Exp 保持原值不动
-        for pid, rec in self.all_records.items():
-            # BaseAttr（基础属性点，永久生效）
-            rec_ba = rec.setdefault('BaseAttr', {})
-            for k in ["Str","Dex","Mind","Con"]:
-                rec_ba[k] = 99
-            rec_ba['Hp'] = 999
-            rec_ba['Mp'] = 99
-            # PermanentFightAttr（永久加成，永久生效，不会被重算覆盖）
-            rec_pfa = rec.setdefault('PermanentFightAttr', {})
-            for k in ["Str","Dex","Mind","Con"]:
-                rec_pfa[k] = 999
-            rec_pfa['MaxHp'] = 9000
-            rec_pfa['MaxMp'] = 900
-            for k in ["PhysicalAttack","MagicAttack","Defense","Speed"]:
-                rec_pfa[k] = 999
-            rec_pfa['CriticalRatio'] = 100
-            rec_pfa['DodgeRatio'] = 100
-            # FightAttr 也更新（仅作为加载时的初始显示，下次重算会被覆盖）
-            rec_fa = rec.setdefault('FightAttr', {})
-            rec_fa['Hp'] = 9999; rec_fa['MaxHp'] = 9999
-            rec_fa['Mp'] = 999; rec_fa['MaxMp'] = 999
-            for k in ["Str","Dex","Mind","Con","PhysicalAttack","MagicAttack","Defense","Speed"]:
-                rec_fa[k] = 999
-            for k in ["CriticalRatio","DodgeRatio"]:
-                rec_fa[k] = 100
-
-        # ---- 战场实体：仅当存档含战场数据（战斗中保存）时同步，本次战斗即时生效 ----
-        # 同样不碰 Level / Exp
-        for pid, (ekey, ent) in self.all_entities.items():
-            ent['MaxHp'] = 9999
-            ent['Hp'] = 9999
-            ent['MaxMp'] = 999
-            ent['Mp'] = 999
-            ent.setdefault('BaseAttr', {})['Hp'] = 999
-            ent['BaseAttr']['Mp'] = 99
-            efa = ent.setdefault('FightAttr', {})
-            efa['Hp'] = 9999; efa['MaxHp'] = 9999
-            efa['Mp'] = 999; efa['MaxMp'] = 999
-            for k in ["Str","Dex","Mind","Con","PhysicalAttack","MagicAttack","Defense","Speed"]:
-                efa[k] = 999
-            for k in ["CriticalRatio","DodgeRatio"]:
-                efa[k] = 100
-
-        # 刷新当前角色显示
-        self._set_current_char(pid=self.current_pid, entity_key=self.entity_key)
-        self.refresh_ui()
-        count = len(set(self.all_records) | set(self.all_entities))
-        self._show_status(f"✓ 已全队满属性: {count} 个角色（血/MP+属性加成，等级与经验未改动）")
 
     # ---------- 装备页 ----------
     def _build_equip_page(self, parent):
@@ -867,9 +793,9 @@ class HSLEditor:
         col_idx = int(col.replace('#', '')) - 1
         cols = ("ID","名称","等级","HP","MaxHP","物攻","魔攻","防御","阵营")
 
-        # ID和阵营列不允许编辑
-        if cols[col_idx] in ("ID", "阵营"):
-            self._show_status("ID和阵营列不支持直接编辑", is_error=True)
+        # 仅名称和等级可直接编辑；其余均为游戏换算结果
+        if cols[col_idx] not in ("名称", "等级"):
+            self._show_status("该列是游戏换算结果；请到「存档属性」修改四项累计加点", is_error=True)
             return
 
         # 获取当前值
@@ -939,7 +865,8 @@ class HSLEditor:
 
         ent = json.loads(ent_str) if isinstance(ent_str, str) else ent_str
         pid = ent.get('PlayerId')
-        rec = self.all_records.get(pid) if pid else None
+        record_pid = self._record_pid_for_entity(pid)
+        rec = self.all_records.get(record_pid) if record_pid is not None else None
 
         try:
             if col_name == "名称":
@@ -951,35 +878,6 @@ class HSLEditor:
                 ent['Level'] = val
                 if rec:
                     rec['Level'] = val
-            elif col_name == "HP":
-                val = int(new_val)
-                ent.setdefault('BaseAttr', {})['Hp'] = val
-                ent['Hp'] = val
-                ent.setdefault('FightAttr', {})['Hp'] = val
-                if rec:
-                    rec.setdefault('BaseAttr', {})['Hp'] = val
-                    rec.setdefault('FightAttr', {})['Hp'] = val
-            elif col_name == "MaxHP":
-                val = int(new_val)
-                ent['MaxHp'] = val
-                ent.setdefault('FightAttr', {})['MaxHp'] = val
-                if rec:
-                    rec.setdefault('FightAttr', {})['MaxHp'] = val
-            elif col_name == "物攻":
-                val = int(new_val)
-                ent.setdefault('FightAttr', {})['PhysicalAttack'] = val
-                if rec:
-                    rec.setdefault('FightAttr', {})['PhysicalAttack'] = val
-            elif col_name == "魔攻":
-                val = int(new_val)
-                ent.setdefault('FightAttr', {})['MagicAttack'] = val
-                if rec:
-                    rec.setdefault('FightAttr', {})['MagicAttack'] = val
-            elif col_name == "防御":
-                val = int(new_val)
-                ent.setdefault('FightAttr', {})['Defense'] = val
-                if rec:
-                    rec.setdefault('FightAttr', {})['Defense'] = val
 
             # 写回当前缓存
             cem[row_id] = ent
@@ -1013,17 +911,8 @@ class HSLEditor:
                 rec['Name'] = new_val
             elif col_name == "等级":
                 rec['Level'] = int(new_val)
-            elif col_name == "HP":
-                val = int(new_val)
-                rec.setdefault('BaseAttr', {})['Hp'] = val
-                rec.setdefault('FightAttr', {})['Hp'] = val
-            elif col_name == "MaxHP":
-                rec.setdefault('FightAttr', {})['MaxHp'] = int(new_val)
-            elif col_name in ("物攻", "魔攻", "防御"):
-                fa_key = {"物攻": "PhysicalAttack", "魔攻": "MagicAttack", "防御": "Defense"}[col_name]
-                rec.setdefault('FightAttr', {})[fa_key] = int(new_val)
             self._load_roster()
-            self._show_status(f"✓ 已更新 角色{pid} 的{col_name}")
+            self._show_status(f"✓ 已更新 {character_name(pid, rec)} 的{col_name}")
         except ValueError:
             self._show_status("请输入有效的数字", is_error=True)
 
@@ -1276,64 +1165,41 @@ class HSLEditor:
             self._show_status(f"✗ 加载失败: {e}", is_error=True)
 
     def _apply_current_to_data(self):
-        """将当前角色的 UI 值写回到内存数据结构（不触发保存）"""
-        if not self.save_data or (self.current_pid is None and self.entity is None):
+        """将当前角色的 UI 值写回到内存数据结构（不触发保存）。"""
+        if not self.save_data:
             return
-        # 基础信息 + 存档属性 -> record
+
+        game_run = int(self.basic_vars["GameRun"].get() or 1)
+        if game_run < 1:
+            raise ValueError("周目编号必须大于等于 1")
+        if isinstance(self.gplay, dict):
+            self.gplay['GameRun'] = game_run
+
+        if self.current_pid is None and self.entity is None:
+            return
+
+        # 玩家每次升级分配的四项点数最终累计在 BaseAttr 中。
         rec = self.record
         if rec:
             rec['Level'] = int(self.basic_vars["Level"].get() or 0)
             rec['Exp'] = int(self.basic_vars["Exp"].get() or 0)
-            # BaseAttr
             ba = rec.setdefault('BaseAttr', {})
-            for key in ["Str","Dex","Mind","Con","Hp","Mp"]:
-                ba[key] = int(self.record_vars[f"BaseAttr.{key}"].get() or 0)
-            # PermanentFightAttr（持久层，不会被重算覆盖）
-            pfa = rec.setdefault('PermanentFightAttr', {})
-            for key in ["Str","Dex","Mind","Con","MaxHp","MaxMp",
-                         "PhysicalAttack","MagicAttack","Defense","Speed",
-                         "CriticalRatio","DodgeRatio"]:
-                pfa[key] = int(self.record_vars[f"PermAttr.{key}"].get() or 0)
-            # FightAttr（只读参考，写回仅供参考，下次加载会被重算）
-            fa = rec.setdefault('FightAttr', {})
-            for key in ["Hp","MaxHp","Mp","MaxMp","Str","Dex","Mind","Con",
-                         "PhysicalAttack","MagicAttack","Defense","Speed","Move",
-                         "CriticalRatio","DodgeRatio","FireRes","WaterRes","AirRes","EarthRes","MindRes"]:
-                fa[key] = int(self.record_vars[f"FightAttr.{key}"].get() or 0)
+            for key in ["Str", "Dex", "Mind", "Con"]:
+                value = int(self.record_vars[f"BaseAttr.{key}"].get() or 0)
+                if value < 0:
+                    raise ValueError("累计加点不能为负数")
+                ba[key] = value
 
-        # 战场属性 -> entity
+        # 战场层同步累计加点并只保存当前资源；换算属性由游戏重新计算。
         ent = self.entity
         if ent:
-            new_hp = int(self.battle_vars["Hp"].get() or 0)
-            new_maxhp = int(self.battle_vars["MaxHp"].get() or 0)
-            new_mp = int(self.battle_vars["Mp"].get() or 0)
-            new_maxmp = int(self.battle_vars["MaxMp"].get() or 0)
-            new_stamina = int(self.battle_vars["Stamina"].get() or 0)
-            new_maxstamina = int(self.battle_vars["MaxStamina"].get() or 0)
-            ent.setdefault('BaseAttr', {})['Hp'] = new_hp
-            ent['Hp'] = new_hp
-            ent['MaxHp'] = new_maxhp
-            ent.setdefault('BaseAttr', {})['Mp'] = new_mp
-            ent['Mp'] = new_mp
-            ent['MaxMp'] = new_maxmp
-            ent['Stamina'] = new_stamina
-            ent['MaxStamina'] = new_maxstamina
-            ent['Level'] = int(self.battle_vars["Level"].get() or 0)
-            ent['Exp'] = int(self.battle_vars["Exp"].get() or 0)
-            efa = ent.setdefault('FightAttr', {})
-            efa['Hp'] = new_hp
-            efa['MaxHp'] = new_maxhp
-            for key in ["Hp","MaxHp","Mp","MaxMp","Str","Dex","Mind","Con","PhysicalAttack","MagicAttack","Defense","Speed","Move","CriticalRatio","DodgeRatio"]:
-                efa[key] = int(self.battle_vars[key].get() or 0)
-
-            # 同步战场数据到存档记录（HP/MP/BaseAttr）
             if rec:
-                rec.setdefault('FightAttr', {})['Hp'] = new_hp
-                rec['FightAttr']['MaxHp'] = new_maxhp
-                rec.setdefault('BaseAttr', {})['Hp'] = new_hp
-                rec['FightAttr']['Mp'] = new_mp
-                rec['FightAttr']['MaxMp'] = new_maxmp
-                rec['BaseAttr']['Mp'] = new_mp
+                entity_base = ent.setdefault('BaseAttr', {})
+                for key in ["Str", "Dex", "Mind", "Con"]:
+                    entity_base[key] = rec['BaseAttr'][key]
+            ent['Hp'] = int(self.battle_vars["Hp"].get() or 0)
+            ent['Mp'] = int(self.battle_vars["Mp"].get() or 0)
+            ent['Stamina'] = int(self.battle_vars["Stamina"].get() or 0)
 
         # 装备 / 背包 / 技能 / 仓库
         self._apply_equip_items_to_data()
@@ -1422,6 +1288,7 @@ class HSLEditor:
     def refresh_ui(self):
         if not self.save_data:
             return
+        self.basic_vars["GameRun"].set(str((self.gplay or {}).get('GameRun', 1)))
         # 基础
         if self.record:
             self.basic_vars["Level"].set(str(self.record.get('Level', '')))
@@ -1436,7 +1303,7 @@ class HSLEditor:
         # 存档属性
         if self.record:
             ba = self.record.get('BaseAttr', {})
-            for key in ["Str","Dex","Mind","Con","Hp","Mp"]:
+            for key in ["Str","Dex","Mind","Con"]:
                 self.record_vars[f"BaseAttr.{key}"].set(str(ba.get(key, 0)))
             # PermanentFightAttr（永久加成）
             pfa = self.record.get('PermanentFightAttr', {})
@@ -1456,12 +1323,11 @@ class HSLEditor:
 
         # 战场属性（非战斗存档没有战场数据，给出提示）
         if self.stage is None:
-            self.battle_note_var.set("⚠ 该存档保存于非战斗状态（stage=null），不含战场数据；\n本页修改无效，持久修改请用「存档属性」页或底部「全队满属性(持久)」。")
+            self.battle_note_var.set("⚠ 该存档保存于非战斗状态（stage=null），不含战场数据；\n角色成长请到「存档属性」页修改四项累计加点。")
         else:
             self.battle_note_var.set("")
         if self.entity:
-            ba = self.entity.get('BaseAttr', {})
-            self.battle_vars["Hp"].set(str(ba.get('Hp', 0)))
+            self.battle_vars["Hp"].set(str(self.entity.get('Hp', 0)))
             self.battle_vars["MaxHp"].set(str(self.entity.get('MaxHp', 0)))
             for key in ["Mp","MaxMp","Stamina","MaxStamina","Level","Exp"]:
                 self.battle_vars[key].set(str(self.entity.get(key, 0)))
@@ -1502,11 +1368,43 @@ class HSLEditor:
             # 保持正式版非战斗存档的原样（stage=null），不要写成 "{}"
             self.save_data['stage'] = None
 
+    def _sync_savinfo_game_run(self, save_path):
+        """同步存档列表中的周目编号；非标准槽位路径直接跳过。"""
+        match = re.fullmatch(r'gamedata_(\d+)\.sav', os.path.basename(save_path), re.IGNORECASE)
+        if not match:
+            return False
+        savinfo_path = os.path.join(os.path.dirname(os.path.dirname(save_path)), 'savinfo.txt')
+        if not os.path.isfile(savinfo_path):
+            return False
+
+        save_index = int(match.group(1))
+        save_infos = decrypt_file(savinfo_path)
+        if not isinstance(save_infos, list) or save_index >= len(save_infos):
+            return False
+        entry = save_infos[save_index]
+        if not isinstance(entry, dict):
+            return False
+
+        game_run = int((self.gplay or {}).get('GameRun', 1))
+        if entry.get('GameRun') == game_run:
+            return False
+        entry['GameRun'] = game_run
+        with open(savinfo_path, 'rb') as source:
+            original = source.read()
+        with open(savinfo_path + '.bak', 'wb') as backup:
+            backup.write(original)
+        encrypt_file(savinfo_path, save_infos)
+        return True
+
     def save_file(self):
         if not self.save_data:
             self._show_status("请先打开存档", is_error=True)
             return
-        self._apply_changes()
+        try:
+            self._apply_changes()
+        except ValueError as e:
+            self._show_status(f"输入无效: {e}", is_error=True)
+            return
 
         # 确定保存路径：优先使用已打开的文件路径
         if self.sav_path:
@@ -1533,7 +1431,15 @@ class HSLEditor:
                 os.rename(path, bak_path)
 
             encrypt_file(path, self.save_data)
-            self._show_status(f"✓ 已保存: {os.path.basename(path)}  (备份: {os.path.basename(path)}.bak)")
+            try:
+                synced = self._sync_savinfo_game_run(path)
+            except Exception as sync_error:
+                self._show_status(
+                    f"✓ 主存档已保存，但 savinfo.txt 周目同步失败: {sync_error}", is_error=True)
+                return
+            sync_note = "，周目索引已同步" if synced else ""
+            self._show_status(
+                f"✓ 已保存: {os.path.basename(path)}  (备份: {os.path.basename(path)}.bak{sync_note})")
         except Exception as e:
             self._show_status(f"✗ 保存失败: {e}", is_error=True)
 
