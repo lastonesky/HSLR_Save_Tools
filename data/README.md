@@ -7,7 +7,7 @@
 | 项目 | 内容 |
 |---|---|
 | 游戏 | `E:\SteamLibrary\steamapps\common\幻世錄 Remake` |
-| 资源文件 | `HSLR_Dataesources.assets`（Unity Assets，未加密） |
+| 资源文件 | `HSLR_Data\resources.assets`（Unity Assets，未加密） |
 | 主表 | `design_tbitem`（TextAsset，path_id 5965，JSON） |
 | 文本表 | `GameString`（TextAsset，path_id 6286，JSON：`id -> 简中/繁中/英/日/韩`） |
 | 枚举来源 | `Il2CppDumper/dump.cs` 的 `cfg.def` 命名空间 |
@@ -19,10 +19,14 @@
 
 | 文件 | 内容 |
 |---|---|
-| `items.csv` | 全部 320 项（装备 + 道具），UTF-8 BOM，可直接用 Excel 打开 |
+| `items.csv` | 全部 320 项（装备 267 + 道具 53 + 重要/任务道具若干），UTF-8 BOM，可直接用 Excel 打开 |
 | `equipment.csv` | 仅装备（`EItemType.Equip`），267 项 |
 | `consumables.csv` | 仅道具/消耗品（`EItemType.Item`），53 项 |
 | `items.json` | 同上数据的完整 JSON，附本文件用到的全部枚举对照表 |
+
+> 编辑器 v5 只加载 `items.csv`（`hslr_editor.load_item_table`），依赖列：
+> `ID`、`名称(简中)`（回退`名称(繁中)`）、`类型`、`子类型`、`装备部位`、`描述(简中|繁中)`、`买价`。
+> 缺列或读不到文件时下拉框为空，但**仍可手输物品 ID**（状态栏会提示未加载物品表）。
 
 > ⚠ `data/items.json` 与仓库 `.gitignore` 里的 `*.json` 规则冲突，若要提交需加例外：`!data/*.json`。
 
@@ -157,6 +161,8 @@
 2. `EEquipSlot` 里 `200~225` 是**被动技能**槽位（`PassiveSkill*`），`100` 是学习技能槽，`300~302` 在 demo 版 `dump.cs` 中没有定义（**正式版新增，本表标注为未映射**），对应物品名称均为主角名，推测与角色外观/皮肤相关。
 3. `属性:*` 是**装备提供的加成值**，与存档里角色的 `FightAttr` 含义不同（后者是游戏按等级与装备重算出来的最终值）。
 4. 枚举取自 demo 版 `dump.cs`；正式版若新增枚举值，表中会显示为 `<枚举名><数字>(版本新增/未映射)`。
+5. **装备页下拉框靠 `装备部位` 列过滤**，取值必须是 `Head/Body/Feet/Weapon/Amulet1/Amulet2`（对应槽位 0~5）；写成中文「头盔/防具/…」会导致该物品在编辑器里筛不出来。
+6. **导入前务必只保留 Group=0**：编辑器按 `ID` 建表、重复 ID 后者覆盖前者，混入 Group=1 会造成随机覆盖。
 
 ---
 生成方式：`UnityPy` 读取 `resources.assets` → 解析 `design_tbitem` + `GameString` → 合并导出。

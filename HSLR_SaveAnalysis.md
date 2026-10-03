@@ -12,7 +12,7 @@
 │   ├── snapshot_0.sav ~ snapshot_N.sav
 │   └── undoinfo.txt
 ├── playstatis.db                          # SQLite 统计数据库（未加密）
-├── savinfo.txt                            # 存档索引（加密）
+├── savinfo.txt                            # 存档索引（加密）；v5 保存 gamedata_N.sav 时会把 GameRun 写回对应条目，并生成 savinfo.txt.bak
 ├── MemoryData.sav                         # 记忆数据（加密）
 └── settingData.sav                        # 设置数据（加密）
 ```
@@ -109,10 +109,13 @@ public class EncryptHelper
 ```json
 {
     "SID": 1788647173,              // Steam ID
+    "RootSid": 1788647173,          // 二周目起始 SID（NewGameCopy 时记录）
     "StageId": 52,                  // 当前关卡ID
     "Gold": 739,                    // 金币
     "PlayTime": 1032,               // 游玩秒数
     "Level": 3,                     // 全局等级
+    "GameRun": 1,                   // ★ 周目编号（v5「基础信息」页可改，≥1；保存 gamedata_N.sav 时同步到 savinfo.txt）
+    "IsNewRun": false,              // 是否正在启动新周目（Clear Data 为 true）
     "Version": "",                  // 版本
     "HardLevelSet": [...],          // 难度设置
     "GDCharRecordInfo": {           // ★ 角色存档记录
@@ -134,39 +137,36 @@ public class EncryptHelper
 
 ### 3.2 GDCharRecordInfo — 角色存档记录 (核心)
 
+> 图例：★ = 存档中的关键字段；**[可写]** = 编辑器 v5 可直接修改；**[只读]** = v5 仅展示（游戏会重算／属系统数据）
+
 每个角色的存档数据结构：
 
 ```json
 {
     "PlayerId": 100,                // 角色ID
+    "Name": "雷欧纳德",              // ★[可写] 角色名，v5 用它显示（无 Name 时回退内置 PID 表：100雷欧纳德/200琥/300缇娜/400汉克斯/500雪拉/600雷特/700嚎/800咕噜/900克罗蒂）
     "Exp": 109,                     // 经验值
-    "Level": 3,                     // ★ 等级
+    "Level": 3,                     // ★[可写] 等级（v5「基础信息」页逐角色修改）
     "IsBattleLocked": false,
     "NrlSkillId": 1001,             // 普攻技能ID
-    "MagicSkillIDs": [],            // ★ 魔法技能列表
-    "SpSkillIDs": [25],             // ★ 特殊技能列表
-    "ItemIDs": [212, 217],          // ★ 携带道具
-    "EquipIDs": {                   // ★ 装备
-        "0": 123,                   //   武器 (slot 0)
-        "1": 97,                    //   防具 (slot 1)
-        "2": 143,                   //   饰品1 (slot 2)
-        "3": 2,                     //   头盔 (slot 3)
-        "4": 267                    //   饰品2 (slot 4)
+    "MagicSkillIDs": [],            // ★[可写] 魔法技能列表
+    "SpSkillIDs": [25],             // ★[可写] 特殊技能列表
+    "ItemIDs": [212, 217],          // ★[可写] 携带道具
+    "EquipIDs": {                   // ★[可写] 槽位见 §4：0=头盔 1=防具 2=鞋子 3=武器 4=饰品1 5=饰品2
+        "0": 2, "1": 97, "2": 95, "3": 123, "4": 143, "5": 267
     },
-    "BaseAttr": {                   // ★ 基础属性 (影响升级成长)
-        "Str": 1,                   //   力量基础
-        "Dex": 1,                   //   敏捷基础
-        "Mind": 2,                  //   智力基础
-        "Con": 6,                   //   体质基础
-        "Hp": 43,                   //   ★ 基础HP (存档最大HP)
-        "Mp": 11                    //   基础MP
+    "BaseAttr": {                   // ★ 升级分配点数的累计值
+        "Str": 1,                   //   [可写] 力量累计加点（非最终力量）
+        "Dex": 1, "Mind": 2, "Con": 6,
+        "Hp": 43,                   //   [只读] v5 不再编辑；HP 由游戏按等级与装备换算
+        "Mp": 11                    //   [只读] 同上
     },
-    "PermanentFightAttr": {         // 永久加成属性 (通常全0)
+    "PermanentFightAttr": {         // [只读] 系统/道具永久加成，v5 不提供编辑
         "Str": 0, "Dex": 0, ...
     },
-    "FightAttr": {                  // ★ 战斗属性 (存档记录版)
-        "Hp": 30,                   //   ★ 存档记录HP
-        "MaxHp": 43,                //   ★ 存档记录最大HP
+    "FightAttr": {                  // [只读] 派生战斗属性，升级/进入战斗即被重算
+        "Hp": 30,                   //   [只读] 存档记录HP
+        "MaxHp": 43,                //   [只读] 存档记录最大HP
         "Mp": 0, "MaxMp": 11,
         "Str": 17, "Dex": 17,
         "Mind": 10, "Con": 18,
@@ -184,6 +184,10 @@ public class EncryptHelper
     }
 }
 ```
+
+> 编辑器 v5 的「存档属性」页只有 `BaseAttr.Str/Dex/Mind/Con` 四项可写（累计加点）；
+> `PermanentFightAttr`、`FightAttr` 及 `BaseAttr.Hp/Mp` 均为只读参考。
+> 转职角色（如 PID 101/102）的战场实体会自动映射到基础记录 PID 100，修改会写回基础记录。
 
 ### 3.3 stage — 战场数据
 
@@ -211,23 +215,25 @@ public class EncryptHelper
 
 ```json
 {
-    "EntityId": "雷歐納德",
+    "EntityId": "雷歐納德",              // ★[可写] 实体名（v5 内置表为简体「雷欧纳德」，作为回退）
     "PlayerId": 100,
     "Camp": 2,                      // 1=敌方, 2=我方, 3=中立
     "Job": 100,                     // 职业ID
-    "Level": 4,                     // ★ 战场等级
-    "Exp": 12,                      // ★ 战场经验
-    "Hp": 8,                        // ★ 战场当前HP
-    "MaxHp": 49,                    // ★ 战场最大HP
-    "Mp": 11, "MaxMp": 11,
-    "Str": 18, "Dex": 18,          // ★ 战场实际力量/敏捷
+    "Level": 4,                     // ★ 战场等级（v5 只读）
+    "Exp": 12,                      // ★ 战场经验（v5 只读）
+    "Hp": 8,                        // ★[可写] 战场当前HP
+    "MaxHp": 49,                    // ★[只读] 战场最大HP，由游戏换算
+    "Mp": 11, "MaxMp": 11,          // ★[可写]/[只读] 当前MP / 最大MP
+    "Stamina": 320,                 // ★[可写] 当前集气（顶层字段，不在 FightAttr 里）
+    "MaxStamina": 9999,             // ★[只读] 集气上限（读不到时 v5 按 9999 处理）
+    "Str": 18, "Dex": 18,          // ★[只读] 战场实际力量/敏捷（游戏换算结果）
     "Mind": 10, "Con": 21,
-    "Defense": 54,                  // ★ 战场防御
-    "Speed": 18,                    // 速度
-    "Move": 5,                      // 移动力
-    "PhysicalAttack": 62,           // ★ 战场物攻
-    "MagicAttack": 21,              // 战场魔攻
-    "FightAttr": {                  // 战场战斗属性详情
+    "Defense": 54,                  // ★[只读] 战场防御
+    "Speed": 18,                    // 速度（只读）
+    "Move": 5,                      // 移动力（只读）
+    "PhysicalAttack": 62,           // ★[只读] 战场物攻
+    "MagicAttack": 21,              // 战场魔攻（只读）
+    "FightAttr": {                  // [只读] 战场战斗属性详情（重算来源）
         "Hp": 8, "MaxHp": 49,
         "Str": 18, "Dex": 18,
         "PhysicalAttack": 62,
@@ -252,6 +258,10 @@ public class EncryptHelper
     ...
 }
 ```
+
+> v5 的战场页只把 **Hp / Mp / Stamina** 三个顶层字段视为可写；MaxHp、MaxMp、MaxStamina、
+> Str/Dex/Mind/Con、物攻/魔攻/防御/速度/移动/暴击/闪避 均为游戏换算结果，只读。
+> 「一键满血满蓝/满气」只把当前值填到上限，不会改写上限本身。
 
 ---
 
@@ -323,6 +333,14 @@ public class EncryptHelper
 | 400 | 盗贼 | 8 | 1007 | [1007,400] | 匕首82,鎧甲122,鞋96,飾品143 | — |
 | 401 | 刺客 | 1 | 1007 | [1007,400,401] | — | — |
 | 403 | 帝国刺客 | 1 | 1007 | [1007,400,401,402] | — | — |
+
+> 编辑器 v5 的「战场实体 → 存档记录」映射规则（`_record_pid_for_entity`）：
+> 1. 先按 PID 精确匹配 `GDCharRecordInfo`；
+> 2. 匹配不到且 `100 ≤ PID < 1000` 时，归到同族基础 ID `(PID // 100) * 100`（转职 101/102 → 100）；
+>    因此表中 109/110/403 这类“同族非整百 ID”在编辑器里会并到 100/400 的记录上，属已知行为；
+> 3. PID ≥ 1000（如 1000）不参与归并，会显示为没有对应存档记录。
+> 4. 记录里没有 `Name` 时，用内置表 100雷欧纳德/200琥/300缇娜/400汉克斯/500雪拉/600雷特/700嚎/800咕噜/900克罗蒂，
+>    表里没有的 PID 显示「角色<PID>」。当前战场里没有对应实体、只有存档记录的角色，下拉框会标 **[仅存档]**。
 | 500 | 魔法师 | 6 | 1005 | [1005,500] | 頭68,杖122,鞋94,飾品143,飾品159 | 回復藥×2,吸取敵人生命×2 |
 | 501 | 精灵使 | 1 | 1005 | [1005,500,501] | — | — |
 | 502 | 精灵女王 | 1 | 1005 | [1005,500,501,502] | — | — |
@@ -522,7 +540,7 @@ public class EncryptHelper
 | MaxHp | 最大HP | — |
 | Mp | 当前MP | — |
 | MaxMp | 最大MP | — |
-| Stamina | 气力 | 通常9999 |
+| Stamina | 气力 | ★顶层字段：战场实体用 `Stamina`/`MaxStamina`（不在 FightAttr 子字典内）；读不到时 v5 回退 9999。存档记录 GDCharRecordInfo 中通常不出现 |
 | PhysicalAttack | 物理攻击力 | — |
 | MagicAttack | 魔法攻击力 | — |
 | Defense | 防御力 | — |
@@ -564,8 +582,9 @@ public class EncryptHelper
 | 文件 | 说明 |
 |---|---|
 | `hslr_crypt.py` | 命令行解密/加密工具 |
-| `hslr_editor.py` | GUI 图形编辑器 (tkinter) |
+| `hslr_editor.py` | GUI 图形编辑器 (tkinter)，v5 支持加点/装备/物品/技能/集气/周目 |
 | `extract_keys.js` | Frida 运行时密钥提取脚本 |
+| `analyze_levelup.js` | Frida 运行时升级系统分析（属性重算 / Clamp / AddPlayerLvUpPoints 日志） |
 
 ### 10.2 命令行操作
 
@@ -606,23 +625,23 @@ cipher = AES.new(KEY, AES.MODE_CBC, IV)
 pt = unpad(cipher.decrypt(ct), 16)
 save = json.loads(gzip.decompress(pt).decode('utf-8'))
 
-# 2. 修改
+# 2. 修改（v5 语义）
 gplay = json.loads(save['gplay'])
 stage = json.loads(save['stage'])
 
-# 修改存档记录中的HP
+# 改持久加点（只有这四项是「累计加点」，改它们才持久生效）
 record = gplay['GDCharRecordInfo']['100']
-record['BaseAttr']['Hp'] = 9999        # 基础HP
-record['FightAttr']['MaxHp'] = 9999    # 存档最大HP
-record['FightAttr']['Hp'] = 9999       # 存档当前HP
+for k in ('Str', 'Dex', 'Mind', 'Con'):
+    record['BaseAttr'][k] = 100
 
-# 修改战场实体中的HP
+# 改战场当前资源（只有 Hp/Mp/Stamina 三个顶层字段建议改）
 cem = stage['charEntitiesMap']
 for key, val in cem.items():
     v = json.loads(val) if isinstance(val, str) else val
     if v.get('PlayerId') == 100 and v.get('Camp') == 2:
-        v['Hp'] = 9999
-        v['MaxHp'] = 9999
+        v['Hp'] = v.get('MaxHp', v['Hp'])          # 上限不要动，交给游戏换算
+        v['Mp'] = v.get('MaxMp', v['Mp'])
+        v['Stamina'] = v.get('MaxStamina', 9999)
         cem[key] = v
 
 # 3. 重新加密保存
@@ -656,7 +675,9 @@ with open('gamedata_0.sav', 'wb') as f:
 
 关键字段：
 - `PlayerDetail`: JSON格式角色快照 `[{PlayerId, Level, Equip, Bag}]`
-- `PlayerLvUpPoints`: 升级点数 `[[PlayerId, 属性1, 属性2, 属性3, 属性4]]`
+- `PlayerLvUpPoints`: 加点统计日志，由游戏 `AddPlayerLvUpPoints`（RVA `0x805C00`）在每次分配点数时写入，形如 `[PlayerId, 属性1, 属性2, 属性3, 属性4]`（数组长度以实际为准，用 `analyze_levelup.js` 的 Hook 11 可在控制台看到 `[AddPlayerLvUpPoints] PID=… points=[…]`）。
+
+> ⚠ 编辑器 v5 **不读取也不修改** `playstatis.db`。直接改存档里的 `BaseAttr` 后，这份统计日志不会同步，游戏内/成就侧看到的加点记录可能与实际存档不一致。
 
 ---
 

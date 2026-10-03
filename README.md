@@ -74,6 +74,7 @@ python hslr_crypt.py decrypt-all
 demo 版: %USERPROFILE%\AppData\LocalLow\UserJoy\HSLR\Save\Save_Demo\sav\
 ├── gamedata_0.sav ~ gamedata_N.sav   # 玩家手动存档
 ├── restart_0.sav ~ restart_N.sav     # 自动/重启存档
+├── savinfo.txt                       # 存档索引（加密）；v5 保存 gamedata_N.sav 时会同步周目编号
 └── *.jpg                              # 存档截图
 ```
 
@@ -153,19 +154,25 @@ demo 版: %USERPROFILE%\AppData\LocalLow\UserJoy\HSLR\Save\Save_Demo\sav\
 ### 正确修改方式
 
 ```python
-# ❌ 错误：改FightAttr（会被覆盖）
+# ❌ 错误：改 FightAttr（每次战斗/加载都会被游戏重算覆盖）
 record['FightAttr']['Str'] = 9999
 
-# ✅ 正确：改BaseAttr（基础属性点，永久生效）
-record['BaseAttr']['Str'] = 100
+# ❌ 错误：编辑器 v5 不提供 BaseAttr.Hp/Mp 编辑；HP/MP 由游戏按等级与装备换算
+record['BaseAttr']['Hp'] = 9999
 
-# ✅ 也可以改PermanentFightAttr（永久加成）
-record['PermanentFightAttr']['Str'] = 500
+# ✅ 正确：改 BaseAttr 四项累计加点（v5「存档属性」页唯一可写区域）
+record['BaseAttr']['Str']  = 100
+record['BaseAttr']['Dex']  = 100
+record['BaseAttr']['Mind'] = 100
+record['BaseAttr']['Con']  = 100
 ```
 
 ### 职业限制
 
-每个职业有属性上限（Clamp），超过后无法继续加点。
+每个职业有属性上限（DesJob.ClampStr/Dex/Mind/Con），超过后游戏内无法继续加点。
+**编辑器 v5 不校验 Clamp**（只阻止负数），写入超限数值不会报错，
+但升级界面仍会禁用「+」按钮、且重算时按游戏逻辑处理。
+想知道各职业实际上限，用 `analyze_levelup.js` 打开升级界面看 `[UpdateBaseAbilityTextColor] Clamp上限` 行。
 
 > 📖 详见 [ANALYSIS_LevelUp.md](./ANALYSIS_LevelUp.md)
 
@@ -173,21 +180,27 @@ record['PermanentFightAttr']['Str'] = 500
 
 ### GUI编辑器
 
-运行 `python hslr_editor.py` 启动图形编辑器：
+运行 `python hslr_editor.py` 启动图形编辑器（v5），共 7 个分页：
 
-1. **基础信息** - 修改等级、经验值
-2. **存档属性** - 修改基础属性和战斗属性
-3. **战场属性** - 修改当前战场的角色数据
-4. **装备/道具/技能** - 修改装备槽、背包道具、技能配置
-5. **全角色一览** - 查看所有战场角色信息
+1. **基础信息** - 等级、经验、**周目编号（GameRun；保存时会同步到 savinfo.txt）**
+2. **存档属性** - ★只有「累计加点 BaseAttr：力量/敏捷/智力/体质」可写★；永久加成与战斗属性为只读参考
+3. **战场属性** - ★只有当前 HP / MP / 集气(Stamina) 可写★，其余为游戏换算结果，只读
+4. **装备** - 6 个槽位，下拉框按部位过滤（数据来自 `data/items.csv`）
+5. **物品** - 角色背包（ItemIDs）与全队仓库（StorageItems）
+6. **技能** - 普攻 / 魔法 / 特殊技能 ID
+7. **全角色一览** - 双击可改「名称」「等级」两列，其余只读
 
 ### 快捷操作
 
 | 按钮 | 功能 |
 |------|------|
-| ❤ 一键满血满蓝 | 将 HP/MP 恢复到最大值 |
-| ⚡ 全属性MAX | 所有属性设为最大值 (999) |
-| 🎯 Lv99 + 满经验 | 等级设为 99，经验设为 99999 |
+| ❤ 一键满血满蓝 | 战场页：把当前角色 HP/MP 填到 MaxHp/MaxMp（不改上限） |
+| 一键满气 | 战场页：把当前角色 Stamina 填到 MaxStamina |
+| 全角色一键满气 | 底部按钮：把战场中所有我方(Camp=2)角色设为满气 |
+| 🔄 刷新显示 / 💾 保存存档 | 重新从内存刷新 UI / 写回并生成 .bak |
+
+> ⚠ v5 没有「全属性 MAX」「Lv99/满经验」「全队满属性」之类的一键改值按钮；
+> 想改战斗数值请改「存档属性」页的四项累计加点，等级/经验在「基础信息」页逐角色修改。
 
 ### 脚本修改
 
@@ -207,9 +220,12 @@ cipher = AES.new(KEY, AES.MODE_CBC, IV)
 pt = unpad(cipher.decrypt(ct), 16)
 save = json.loads(gzip.decompress(pt).decode('utf-8'))
 
-# 修改
+# 修改（v5 语义：只有这四项累计加点会持久生效）
 gplay = json.loads(save['gplay'])
-gplay['GDCharRecordInfo']['100']['BaseAttr']['Hp'] = 9999
+rec = gplay['GDCharRecordInfo']['100']
+for k in ('Str', 'Dex', 'Mind', 'Con'):      # 升级分配点数的累计总点数
+    rec['BaseAttr'][k] = 100
+rec['Level'], rec['Exp'] = 50, 0             # 等级/经验同样写在存档记录里
 
 # 重新加密
 save['gplay'] = json.dumps(gplay, ensure_ascii=False)
@@ -236,9 +252,22 @@ with open('gamedata_0.sav', 'wb') as f:
 2. **游戏版本** - 工具基于特定版本开发，游戏更新后可能需要调整
 3. **修改风险** - 过度修改可能导致游戏崩溃或存档损坏
 4. **Steam 云存档** - 修改后注意 Steam 云同步可能覆盖修改
-5. **属性修改** - 修改 `BaseAttr` 而不是 `FightAttr` 才能持久生效
+5. **属性修改** - 修改「存档属性」页的四项累计加点，而不是 `FightAttr` 等换算结果才能持久生效
+6. **周目编号** - 「基础信息」页的 GameRun 必须 ≥ 1；保存 `gamedata_N.sav` 时 v5 会把它同步进
+   上级目录的 `savinfo.txt`（并生成 `savinfo.txt.bak`）。它**不会**自动生成新周目的继承快照，
+   `restart_*.sav` / 非标准文件名不会触发同步。
+7. **集气(Stamina)** - 集气是战场实体的顶层字段 `Stamina/MaxStamina`，只在有战场数据（stage≠null）的存档里可改。
 
 ## 📝 更新日志
+
+### v5.0.0
+- 存档属性页改为「累计加点语义」：只有 BaseAttr 四项可写，永久加成/战斗属性改为只读参考
+- 战场属性页只保留 当前HP/MP/集气 可写；新增「一键满气」「全角色一键满气」
+- 新增「周目编号(GameRun)」编辑，并在保存 gamedata_N.sav 时同步 savinfo.txt（带 .bak）
+- 新增 装备 / 物品（背包+仓库）/ 技能 三个分页，读取 data/items.csv
+- 支持多角色切换、敌方/中立实体查看、非战斗存档（stage=null）降级显示
+- 修复转职角色（PID 101/201/301 等）与基础存档记录（100/200/300）的关联
+- 无 `Name` 的仅存档角色现在会按基础角色表显示真实姓名
 
 ### v1.1.0 (2026-09-13)
 - 新增结局分析文档

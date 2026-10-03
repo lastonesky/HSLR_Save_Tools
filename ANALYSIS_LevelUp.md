@@ -34,25 +34,22 @@
 
 | 存档字段 | 作用 | 改了是否有效 |
 |---------|------|-------------|
-| `BaseAttr.Str` | 已分配的基础属性点 | ✅ 有效且会被保留 |
-| `PermanentFightAttr.Str` | 永久加成(道具使用等) | ✅ 有效且会被保留 |
-| `FightAttr.Str` | 最终战斗属性 | ❌ **每次战斗/加载都重算** |
-| `Stage.charEntitiesMap.*.Str` | 战场快照 | ❌ **下次进战斗重算** |
+| `BaseAttr.Str` | 升级分配点数的**累计总点数** | ✅ 有效且会被保留（v5「存档属性」页唯一可写区） |
+| `PermanentFightAttr.Str` | 永久加成(道具使用等) | ⚠ 改存档理论上有效，但 v5 视为系统/道具数据，**只读展示、不提供编辑** |
+| `FightAttr.Str` | 最终战斗属性 | ❌ **每次战斗/加载都重算**（v5 中也是只读） |
+| `Stage.charEntitiesMap.*.Str` | 战场快照 | ❌ **下次进战斗重算**（v5 中只读） |
 
 #### 正确的修改方式：
 
-要让属性**持久生效**，必须修改 **BaseAttr** 而不是 FightAttr：
+要让属性**持久生效**，必须修改 **BaseAttr 累计加点** 而不是 FightAttr：
 
 ```python
 # ❌ 错误：改 FightAttr（会被覆盖）
 record['FightAttr']['Str'] = 9999
 
-# ✅ 正确：改 BaseAttr（基础属性点，永久生效）
+# ✅ 正确：改 BaseAttr（累计加点总点数，永久生效）
 record['BaseAttr']['Str'] = 100  # 注意：受 DesJob.ClampStr 限制！
-record['BaseAttr']['Hp'] = 500   # 基础HP池
-
-# ✅ 也可以改 PermanentFightAttr（永久加成）
-record['PermanentFightAttr']['Str'] = 500
+# ❌ v5 不编辑 BaseAttr.Hp/Mp，也不编辑 PermanentFightAttr（两者在 UI 中只读）
 ```
 
 ---
@@ -109,13 +106,16 @@ void UpdateBaseAbilityTextColor(int[] baseAttrValues, int[] clampValues, int[] j
 
 当 `hasPoint > 0` 但 `enable = false` 时，就是你遇到的情况。
 
+> 编辑器 v5 不做 Clamp 校验（只拒绝负数），写入超过 Clamp 的值不会报错；
+> 但游戏升级界面仍会禁用「+」，且属性重算时按自身逻辑处理，请以本文的 Clamp 值为准自行控制。
+
 ---
 
 ## 解决方案
 
 ### 方案1：通过存档修改（推荐）
 
-修改 `BaseAttr` 而不是 `FightAttr`。但要注意职业上限：
+修改 `BaseAttr` 累计加点而不是 `FightAttr`。但要注意职业上限：
 
 ```python
 # 读取存档
@@ -123,21 +123,13 @@ save = decrypt_file('gamedata_0.sav')
 gplay = json.loads(save['gplay'])
 rec = gplay['GDCharRecordInfo']['100']  # 主角
 
-# 修改基础属性点（受 Clamp 限制）
-rec['BaseAttr']['Str'] = 50   # 不能超过该职业的 ClampStr
-rec['BaseAttr']['Dex'] = 50
-rec['BaseAttr']['Mind'] = 50
-rec['BaseAttr']['Con'] = 50
-rec['BaseAttr']['Hp'] = 500   # HP 不受 Clamp 限制
-rec['BaseAttr']['Mp'] = 100
-
-# 修改永久加成（不受 Clamp 限制，但值太大会溢出显示）
-rec['PermanentFightAttr']['Str'] = 200
-rec['PermanentFightAttr']['MaxHp'] = 2000
-
-# 保存
-save_file('gamedata_0.sav', save)
+# 修改累计加点（受 Clamp 限制；建议先查 DesJob.Clamp）
+for k in ('Str', 'Dex', 'Mind', 'Con'):
+    rec['BaseAttr'][k] = 50
+# ❌ v5 不编辑 BaseAttr.Hp/Mp，也不编辑 PermanentFightAttr（两者在 UI 中只读）
 ```
+
+> 本文所述 Clamp / 加点数值均为**游戏侧**结论；编辑器 v5 不读取这些内存结构，也不校验 Clamp，改存档请自行参照 Clamp。
 
 ### 方案2：通过 Frida 运行时修改（绕过限制）
 
@@ -214,9 +206,22 @@ var strVal = attrsArr.add(0x20 + 1*4).readS32();       // attrs[1] = Str
 
 | 偏移 | 字段 | 说明 |
 |------|------|------|
-| 0x154 | UpgradePoints | 每级获得属性点 |
+| 0x154 | UpgradePoints | 每级获得属性点（实测 5） |
 | 0x158 | MaxLevel | 最大等级 |
 | 0x15C | MaxSP | 最大气力 |
+
+### 运行时 Hook（analyze_levelup.js，均为 GameAssembly.dll 基址 + RVA）
+
+| RVA | 函数 | 输出要点 |
+|---|---|---|
+| 0x9EA4F0 | CombatUtils.UpdateFightAttrs | Base/Perm/BEFORE 的 FightAttr 对比 |
+| 0x79FCC0 | CalcAttributeByHardLevel | 难度修正前后 Base |
+| 0x79B590 / 0x79B540 | CheckLevelUp / AddLevel | 升级判定 |
+| 0x94E950 | UpdateBaseAbilityTextColor | ★当前值 / Clamp上限 / 职业成长 |
+| 0x94EB30 / 0x94EDC0 | SetSelectPoint / ChangePoint | 剩余点数与按钮可用性 |
+| 0xD14A60 / 0xD15820 | ApplyToCharEntity / ApplyCharEntityToSelf | 存档↔战场实体同步 |
+| 0x9E8220 | AutoLevelAttribute | 自动加点总点数 |
+| **0x805C00** | **AddPlayerLvUpPoints** | `[AddPlayerLvUpPoints] PID=… points=[…]`，即 playstatis.db 的 PlayerLvUpPoints 日志来源 |
 
 ---
 
@@ -230,5 +235,6 @@ var strVal = attrsArr.add(0x20 + 1*4).readS32();       // attrs[1] = Str
 3. 读取存档，观察控制台输出
 4. 让角色升级，观察属性重算过程
 5. 打开升级界面，查看 `UpdateBaseAbilityTextColor` 输出的 Clamp 值
+6. 打开升级界面并分配点数，观察 `[AddPlayerLvUpPoints] PID=… points=[…]`，可核对每级实际可分配的点数（对应 playstatis.db 的 PlayerLvUpPoints 统计）
 
 这些 Clamp 值就是每个职业的属性上限，超过这个值就无法继续加点。
